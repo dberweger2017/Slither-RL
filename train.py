@@ -21,7 +21,7 @@ from slither_gym import SlitherEnv
 
 CHECKPOINT_DIR = "checkpoints"
 LOG_DIR = "logs"
-SAVE_EVERY_EPISODES = 10_000
+SAVE_EVERY_EPISODES = 200
 TOTAL_TIMESTEPS = 10_000_000
 MAX_CHECKPOINTS = 50
 
