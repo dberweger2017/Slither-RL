@@ -165,6 +165,30 @@ class SlitherEnv(gymnasium.Env):
     def set_selfplay_policies(self, policies):
         self._selfplay_policies = policies
 
+    def load_selfplay_from_dir(self, checkpoint_dir, n=6):
+        """Load policies from checkpoint dir (used by SubprocVecEnv subprocesses)."""
+        import os
+        from stable_baselines3 import PPO
+        if not os.path.exists(checkpoint_dir):
+            self._selfplay_policies = []
+            return
+        files = sorted([f for f in os.listdir(checkpoint_dir) if f.startswith("policy_")])
+        if not files:
+            self._selfplay_policies = []
+            return
+        n_ckpts = len(files)
+        weights = np.array([2.0 ** (i / max(n_ckpts, 1)) for i in range(n_ckpts)])
+        weights /= weights.sum()
+        chosen = np.random.choice(n_ckpts, size=min(n, n_ckpts), replace=True, p=weights)
+        policies = []
+        for idx in chosen:
+            path = os.path.join(checkpoint_dir, files[idx])
+            try:
+                policies.append(PPO.load(path, device='cpu'))
+            except Exception:
+                pass
+        self._selfplay_policies = policies
+
     def _random_point(self, margin=200):
         r = random.uniform(0, self.world_radius - margin)
         theta = random.uniform(0, 2 * math.pi)
@@ -261,7 +285,7 @@ class SlitherEnv(gymnasium.Env):
             for seg in snake.segments[3:]:
                 self.segment_grid.insert((snake, seg), seg[0], seg[1])
 
-        # Self-play agents
+        # Self-play agents — skip obs generation when no policies loaded
         for idx in self._selfplay_indices:
             snake = self.snakes[idx]
             if snake.dead:
@@ -272,7 +296,7 @@ class SlitherEnv(gymnasium.Env):
                 sp_action, _ = policy.predict(obs, deterministic=False)
                 self._apply_action(snake, sp_action)
             else:
-                self._apply_action(snake, self.action_space.sample())
+                snake.target_angle += random.uniform(-0.15, 0.15)
 
         for snake in self.snakes:
             if snake.role == 'scripted' and not snake.dead:
