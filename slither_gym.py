@@ -310,6 +310,8 @@ class SlitherEnv(gymnasium.Env):
             if not snake.dead:
                 if math.hypot(snake.head[0], snake.head[1]) > self.world_radius:
                     snake.dead = True
+                    if snake.is_player:
+                        self.death_cause = 'wall'
                     self._explode_snake(snake)
 
         # Head-to-body collision
