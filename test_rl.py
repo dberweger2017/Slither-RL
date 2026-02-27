@@ -196,7 +196,7 @@ def load_rl_opponents(n=6):
     for idx in chosen:
         path = os.path.join(CHECKPOINT_DIR, files[idx])
         try:
-            model = PPO.load(path, device='cpu')
+            model = PPO.load(path, device=device)
             models.append(model)
             print(f"  Loaded: {files[idx]}")
         except Exception as e:
@@ -206,7 +206,12 @@ def load_rl_opponents(n=6):
     return models
 
 
-def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--rl", type=int, default=6, help="Number of RL agents")
+    parser.add_argument("--bots", type=int, default=9, help="Number of scripted bots")
+    args = parser.parse_args()
+
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Slither.io — Play vs Trained RL Agents")
@@ -224,24 +229,25 @@ def main():
         return r * math.cos(theta), r * math.sin(theta)
 
     # Load RL models
-    print("Loading RL opponents...")
-    rl_models = load_rl_opponents(n=6)
+    print(f"Loading {args.rl} RL opponents...")
+    rl_models = load_rl_opponents(n=args.rl)
 
     # Spawn player
     px, py = random_point_in_circle(WORLD_RADIUS)
     player = Snake(px, py, is_player=True)
     snakes = [player]
 
-    # 9 scripted bots (one per personality)
-    for btype in bot_ai.BOT_TYPES:
+    # Scripted bots
+    for i in range(args.bots):
+        btype = bot_ai.BOT_TYPES[i % len(bot_ai.BOT_TYPES)]
         bx, by = random_point_in_circle(WORLD_RADIUS)
         s = Snake(bx, by, bot_type=btype)
         s.role = 'scripted'
         snakes.append(s)
 
-    # 6 RL-controlled agents
+    # RL-controlled agents
     rl_indices = []
-    for i in range(6):
+    for i in range(args.rl):
         bx, by = random_point_in_circle(WORLD_RADIUS)
         s = Snake(bx, by)
         s.role = 'rl'

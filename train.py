@@ -263,7 +263,8 @@ def main():
     callback = SelfPlayCallback(ckpt_mgr, env, save_every=SAVE_EVERY_EPISODES)
 
     try:
-        model.learn(total_timesteps=args.timesteps, callback=callback, progress_bar=True)
+        model.learn(total_timesteps=args.timesteps, callback=callback,
+                    progress_bar=True, reset_num_timesteps=not bool(args.resume))
     except KeyboardInterrupt:
         print("\n\n⏹️  Training interrupted by user")
     finally:
