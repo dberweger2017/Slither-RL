@@ -193,6 +193,16 @@ def main():
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
+    device = 'auto'
+    if torch.backends.mps.is_available():
+        device = 'mps'
+        print("🍏 Using Apple Silicon MPS for acceleration")
+    elif torch.cuda.is_available():
+        device = 'cuda'
+        print("🚀 Using NVIDIA CUDA GPU for acceleration")
+    else:
+        print("🐌 Using CPU")
+
     def make_env(rank):
         def _init():
             render_mode = 'human' if (args.render and rank == 0) else None
@@ -213,11 +223,11 @@ def main():
             if checkpoints:
                 path = os.path.join(CHECKPOINT_DIR, checkpoints[-1])
                 print(f"📂 Resuming from: {checkpoints[-1]}")
-                model = PPO.load(path, env=env, device='auto', tensorboard_log=LOG_DIR)
+                model = PPO.load(path, env=env, device=device, tensorboard_log=LOG_DIR)
             else:
                 print("⚠️  No checkpoints found, starting fresh")
         else:
-            model = PPO.load(args.resume, env=env, device='auto', tensorboard_log=LOG_DIR)
+            model = PPO.load(args.resume, env=env, device=device, tensorboard_log=LOG_DIR)
 
     if model is None:
         policy_kwargs = {
@@ -240,7 +250,7 @@ def main():
             max_grad_norm=0.5,
             verbose=1,
             tensorboard_log=LOG_DIR,
-            device='auto',
+            device=device,
         )
         print("🆕 Created fresh PPO model")
 
