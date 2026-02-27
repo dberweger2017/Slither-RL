@@ -205,7 +205,7 @@ def load_rl_opponents(n=6):
     print(f"Loaded {len(models)} RL opponents")
     return models
 
-
+def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--rl", type=int, default=6, help="Number of RL agents")
