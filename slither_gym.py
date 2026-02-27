@@ -165,6 +165,13 @@ class SlitherEnv(gymnasium.Env):
         self.prev_mass = START_MASS
         self.pending_kill_mass = 0
         
+        # Episode tracking for metrics
+        self.peak_mass = START_MASS
+        self.food_eaten = 0
+        self.boost_frames = 0
+        self.wall_close_frames = 0
+        self.death_cause = 'alive'
+        
         # Self-play policy pool (set externally by training script)
         self._selfplay_policies = []  # list of (model, obs) tuples for self-play agents
         self._selfplay_indices = []   # indices in self.snakes for self-play agents
