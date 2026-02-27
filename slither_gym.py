@@ -394,8 +394,13 @@ class SlitherEnv(gymnasium.Env):
 
     def _compute_reward(self):
         reward = 0.0
-        mass_delta = (self.player.mass - self.prev_mass) / 100.0
-        reward += mass_delta
+        mass_diff = self.player.mass - self.prev_mass
+        if mass_diff > 0:
+            # Massive incentive to eat food
+            reward += mass_diff / 10.0
+        else:
+            # Softer penalty for losing mass via boosting
+            reward += mass_diff / 200.0
         if self.pending_kill_mass > 0:
             reward += self.pending_kill_mass / 500.0
         reward += 0.001
