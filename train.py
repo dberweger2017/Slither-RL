@@ -159,10 +159,10 @@ class CheckpointManager:
 class SelfPlayCallback(BaseCallback):
     """
     Callback that:
-    1. Tracks episode count
-    2. Saves checkpoints every SAVE_EVERY_EPISODES episodes
-    3. Reloads self-play opponents after each save
-    4. Logs training stats
+    1. Tracks episode count and rich per-episode metrics
+    2. Logs custom metrics to tensorboard
+    3. Saves checkpoints every SAVE_EVERY_EPISODES episodes
+    4. Reloads self-play opponents after each save
     """
     
     def __init__(self, checkpoint_manager, env, save_every=SAVE_EVERY_EPISODES, verbose=1):
@@ -171,53 +171,111 @@ class SelfPlayCallback(BaseCallback):
         self.env = env
         self.save_every = save_every
         self.episode_count = 0
-        self.episode_rewards = []
-        self.episode_masses = []
-        self.episode_kills = []
         self.last_save_episode = 0
         self.start_time = None
+        
+        # Rolling buffers for metrics
+        self.ep_rewards = []
+        self.ep_masses = []
+        self.ep_peak_masses = []
+        self.ep_kills = []
+        self.ep_food_eaten = []
+        self.ep_mass_per_frame = []
+        self.ep_boost_pct = []
+        self.ep_wall_close_pct = []
+        self.ep_lengths = []
+        self.death_causes = {'collision': 0, 'wall': 0, 'survived': 0}
     
     def _on_training_start(self):
         self.start_time = time.time()
-        # Load initial opponents
         self.ckpt_mgr.load_opponents(self.env, n=6)
     
     def _on_step(self):
-        # Check for episode completion
         infos = self.locals.get('infos', [])
         for info in infos:
             if 'episode' in info:
                 self.episode_count += 1
-                ep_reward = info['episode']['r']
-                self.episode_rewards.append(ep_reward)
-                self.episode_masses.append(info.get('mass', 0))
-                self.episode_kills.append(info.get('kills', 0))
+                ep_r = info['episode']['r']
+                ep_l = info['episode']['l']
                 
-                # Log every 100 episodes
+                # Collect metrics
+                self.ep_rewards.append(ep_r)
+                self.ep_lengths.append(ep_l)
+                self.ep_masses.append(info.get('mass', 0))
+                self.ep_peak_masses.append(info.get('peak_mass', 0))
+                self.ep_kills.append(info.get('kills', 0))
+                self.ep_food_eaten.append(info.get('food_eaten', 0))
+                self.ep_mass_per_frame.append(info.get('mass_per_frame', 0))
+                self.ep_boost_pct.append(info.get('boost_pct', 0))
+                self.ep_wall_close_pct.append(info.get('wall_close_pct', 0))
+                
+                dc = info.get('death_cause', 'collision')
+                if dc in self.death_causes:
+                    self.death_causes[dc] += 1
+                
+                # Log to tensorboard every 10 episodes
+                if self.episode_count % 10 == 0 and self.logger:
+                    n = min(100, len(self.ep_rewards))
+                    
+                    # Core performance
+                    self.logger.record("slither/reward_mean", np.mean(self.ep_rewards[-n:]))
+                    self.logger.record("slither/episode_length", np.mean(self.ep_lengths[-n:]))
+                    
+                    # Mass metrics
+                    self.logger.record("slither/final_mass_mean", np.mean(self.ep_masses[-n:]))
+                    self.logger.record("slither/peak_mass_mean", np.mean(self.ep_peak_masses[-n:]))
+                    self.logger.record("slither/peak_mass_max", np.max(self.ep_peak_masses[-n:]))
+                    self.logger.record("slither/mass_per_frame", np.mean(self.ep_mass_per_frame[-n:]))
+                    
+                    # Combat
+                    self.logger.record("slither/kills_mean", np.mean(self.ep_kills[-n:]))
+                    self.logger.record("slither/kills_total", np.sum(self.ep_kills[-n:]))
+                    self.logger.record("slither/food_eaten_mean", np.mean(self.ep_food_eaten[-n:]))
+                    
+                    # Behavior
+                    self.logger.record("slither/boost_pct", np.mean(self.ep_boost_pct[-n:]))
+                    self.logger.record("slither/wall_close_pct", np.mean(self.ep_wall_close_pct[-n:]))
+                    
+                    # Death causes (over last n episodes)
+                    total_dc = sum(self.death_causes.values()) or 1
+                    self.logger.record("slither/death_collision_pct", 
+                                      self.death_causes['collision'] / total_dc)
+                    self.logger.record("slither/death_wall_pct",
+                                      self.death_causes['wall'] / total_dc)
+                    self.logger.record("slither/survival_rate",
+                                      self.death_causes['survived'] / total_dc)
+                    
+                    self.logger.record("slither/episodes", self.episode_count)
+                
+                # Console log every 100 episodes
                 if self.episode_count % 100 == 0:
-                    last_100_r = self.episode_rewards[-100:]
-                    last_100_m = self.episode_masses[-100:]
-                    last_100_k = self.episode_kills[-100:]
+                    n = min(100, len(self.ep_rewards))
                     elapsed = time.time() - self.start_time
                     eps_per_sec = self.episode_count / elapsed if elapsed > 0 else 0
                     
                     print(f"\n📊 Episode {self.episode_count:,} "
                           f"({self.num_timesteps:,} steps, {elapsed/60:.1f}min, "
                           f"{eps_per_sec:.1f} ep/s)")
-                    print(f"   Reward: {np.mean(last_100_r):+.2f} "
-                          f"(min:{np.min(last_100_r):+.2f} max:{np.max(last_100_r):+.2f})")
-                    print(f"   Mass: {np.mean(last_100_m):.0f} avg, "
-                          f"{np.max(last_100_m):.0f} peak")
-                    print(f"   Kills: {np.sum(last_100_k)} total, "
-                          f"{np.mean(last_100_k):.2f} avg/ep")
+                    print(f"   Reward: {np.mean(self.ep_rewards[-n:]):+.2f} | "
+                          f"Mass: {np.mean(self.ep_masses[-n:]):.0f} avg, "
+                          f"{np.max(self.ep_peak_masses[-n:]):.0f} peak")
+                    print(f"   Kills: {np.mean(self.ep_kills[-n:]):.2f}/ep | "
+                          f"Food: {np.mean(self.ep_food_eaten[-n:]):.0f}/ep | "
+                          f"Boost: {np.mean(self.ep_boost_pct[-n:])*100:.0f}%")
+                    print(f"   Growth: {np.mean(self.ep_mass_per_frame[-n:]):.3f} mass/frame | "
+                          f"Deaths: collision={self.death_causes['collision']}, "
+                          f"wall={self.death_causes['wall']}, "
+                          f"survived={self.death_causes['survived']}")
                 
-                # Save checkpoint and refresh opponents
+                # Checkpoint
                 if self.episode_count - self.last_save_episode >= self.save_every:
                     print(f"\n{'='*60}")
                     print(f"🏁 Checkpoint at episode {self.episode_count:,}")
                     self.ckpt_mgr.save(self.model, self.episode_count)
                     self.ckpt_mgr.load_opponents(self.env, n=6)
                     self.last_save_episode = self.episode_count
+                    # Reset death cause counters for next period
+                    self.death_causes = {'collision': 0, 'wall': 0, 'survived': 0}
                     print(f"{'='*60}\n")
         
         return True

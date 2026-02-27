@@ -220,6 +220,11 @@ class SlitherEnv(gymnasium.Env):
         super().reset(seed=seed)
         self.step_count = 0
         self.pending_kill_mass = 0
+        self.peak_mass = START_MASS
+        self.food_eaten = 0
+        self.boost_frames = 0
+        self.wall_close_frames = 0
+        self.death_cause = 'alive'
         
         # Player
         px, py = self._random_point()
@@ -259,6 +264,8 @@ class SlitherEnv(gymnasium.Env):
         
         # 1. Apply training agent's action
         self._apply_action(self.player, action)
+        if self.player.is_boosting:
+            self.boost_frames += 1
         if self.player.is_boosting and self.player.mass > START_MASS + 10:
             if random.random() < 0.2:
                 tail = self.player.segments[-1]
@@ -321,6 +328,8 @@ class SlitherEnv(gymnasium.Env):
                 if dist < owner.radius * 0.8:
                     sa.dead = True
                     owner.kills += 1
+                    if sa.is_player:
+                        self.death_cause = 'collision'
                     if owner.is_player:
                         self.pending_kill_mass += sa.mass
                     self._explode_snake(sa)
@@ -337,6 +346,8 @@ class SlitherEnv(gymnasium.Env):
                 if dist < snake.radius + food.radius:
                     eaten.append(food)
                     snake.mass += food.value * MASS_PER_FOOD
+                    if snake.is_player:
+                        self.food_eaten += 1
         for food in eaten:
             if food in self.foods:
                 self.foods.remove(food)
@@ -357,16 +368,40 @@ class SlitherEnv(gymnasium.Env):
                     new_snake.color = (255, 215, 0)
                 self.snakes[i] = new_snake
         
+        # Track peak mass and wall proximity
+        if not self.player.dead:
+            if self.player.mass > self.peak_mass:
+                self.peak_mass = self.player.mass
+            wall_dist = self.world_radius - math.hypot(
+                self.player.head[0], self.player.head[1])
+            if wall_dist < 200:
+                self.wall_close_frames += 1
+        
         # Compute reward
         reward = self._compute_reward()
         terminated = self.player.dead
         truncated = self.step_count >= self.max_steps
         
+        # Check wall death
+        if terminated and self.death_cause == 'alive':
+            self.death_cause = 'wall'
+        if truncated and not terminated:
+            self.death_cause = 'survived'
+        
         obs = self._make_obs_for(self.player)
+        
+        # Rich info dict
+        mass_growth_rate = (self.player.mass - START_MASS) / max(self.step_count, 1)
         info = {
-            'mass': self.player.mass,
+            'mass': self.player.mass if not self.player.dead else 0,
+            'peak_mass': self.peak_mass,
             'kills': self.player.kills,
             'step': self.step_count,
+            'food_eaten': self.food_eaten,
+            'mass_per_frame': mass_growth_rate,
+            'boost_pct': self.boost_frames / max(self.step_count, 1),
+            'wall_close_pct': self.wall_close_frames / max(self.step_count, 1),
+            'death_cause': self.death_cause,
         }
         self.prev_mass = self.player.mass
         
