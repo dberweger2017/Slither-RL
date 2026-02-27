@@ -412,7 +412,7 @@ class SlitherEnv(gymnasium.Env):
         dist_to_wall = self.world_radius - math.hypot(
             self.player.head[0], self.player.head[1])
         if dist_to_wall < 200:
-            reward -= 0.01 * (1.0 - dist_to_wall / 200.0)
+            reward -= 0.1 * (1.0 - dist_to_wall / 200.0)
         return reward
 
     def _explode_snake(self, snake):
