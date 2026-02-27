@@ -13,6 +13,17 @@ import observation as obs_module
 from spatial_hash import SpatialHash
 from stable_baselines3 import PPO
 
+import torch
+from train import SlitherFeatureExtractor
+
+device = 'auto'
+if torch.backends.mps.is_available():
+    device = 'mps'
+elif torch.cuda.is_available():
+    device = 'cuda'
+else:
+    device = 'cpu'
+
 WIDTH, HEIGHT = 1280, 900
 FPS = 60
 BASE_ZOOM = 0.75
