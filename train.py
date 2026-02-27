@@ -16,7 +16,7 @@ import torch.nn as nn
 from stable_baselines3 import PPO
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecMonitor
 
 from slither_gym import SlitherEnv
 
@@ -108,11 +108,19 @@ class SelfPlayCallback(BaseCallback):
     def _on_step(self):
         infos = self.locals.get('infos', [])
         for info in infos:
-            if 'episode' not in info:
+            # VecMonitor stores the unmonitored info directly, but sometimes wraps it in 'episode'
+            ep_info = info.get('episode', info)
+            
+            # Only log terminal states
+            if not ('terminal_observation' in info or 'episode' in info):
                 continue
+                
             self.episode_count += 1
-            self.ep_rewards.append(info['episode']['r'])
-            self.ep_lengths.append(info['episode']['l'])
+            if 'r' in ep_info:
+                self.ep_rewards.append(ep_info['r'])
+            if 'l' in ep_info:
+                self.ep_lengths.append(ep_info['l'])
+                
             self.ep_masses.append(info.get('mass', 0))
             self.ep_peak_masses.append(info.get('peak_mass', 0))
             self.ep_kills.append(info.get('kills', 0))
@@ -173,7 +181,13 @@ class SelfPlayCallback(BaseCallback):
                 print(f"\n{'='*60}")
                 print(f"🏁 Checkpoint at episode {self.episode_count:,}")
                 self.ckpt_mgr.save(self.model, self.episode_count)
-                self.env.env_method('load_selfplay_from_dir', CHECKPOINT_DIR, 6)
+                
+                # Retrieve the underlying SubprocVecEnv from the VecMonitor wrapper
+                base_env = self.training_env
+                if hasattr(base_env, 'venv'):
+                    base_env = base_env.venv
+                
+                base_env.env_method('load_selfplay_from_dir', CHECKPOINT_DIR, 6)
                 self.last_save_episode = self.episode_count
                 self.death_causes = {'collision': 0, 'wall': 0, 'survived': 0}
                 print(f"{'='*60}\n")
@@ -213,6 +227,9 @@ def main():
         env = DummyVecEnv([make_env(0)])
     else:
         env = SubprocVecEnv([make_env(i) for i in range(args.num_envs)])
+
+    # Wrap explicitly in VecMonitor so that info['episode'] is always generated for TensorBoard callbacks
+    env = VecMonitor(env)
 
     ckpt_mgr = CheckpointManager()
 
