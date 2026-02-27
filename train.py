@@ -202,6 +202,8 @@ def main():
     parser.add_argument('--timesteps', type=int, default=TOTAL_TIMESTEPS)
     parser.add_argument('--render', action='store_true')
     parser.add_argument('--num-envs', type=int, default=4, help='Number of parallel envs')
+    parser.add_argument('--stage', type=int, default=3, choices=[1, 2, 3],
+                       help='Training stage (1: food only, 2: bots, 3: full self-play)')
     args = parser.parse_args()
 
     os.makedirs(LOG_DIR, exist_ok=True)
@@ -220,7 +222,9 @@ def main():
     def make_env(rank):
         def _init():
             render_mode = 'human' if (args.render and rank == 0) else None
-            return SlitherEnv(num_scripted=9, num_selfplay=6, render_mode=render_mode)
+            num_scripted = 9 if args.stage >= 2 else 0
+            num_selfplay = 6 if args.stage == 3 else 0
+            return SlitherEnv(num_scripted=num_scripted, num_selfplay=num_selfplay, render_mode=render_mode)
         return _init
 
     if args.render or args.num_envs == 1:
@@ -273,8 +277,11 @@ def main():
 
     total_params = sum(p.numel() for p in model.policy.parameters())
     print(f"🧠 Model parameters: {total_params:,}")
-    print(f"🎮 Environment: {env.num_envs}x (1 agent + 9 scripted + 6 self-play = 16 snakes)")
+    num_scripted = 9 if args.stage >= 2 else 0
+    num_selfplay = 6 if args.stage == 3 else 0
+    print(f"🎮 Environment: {env.num_envs}x (1 agent + {num_scripted} scripted + {num_selfplay} self-play = {1 + num_scripted + num_selfplay} snakes)")
     print(f"📺 Render: {'ON' if args.render else 'OFF'}")
+    print(f"📈 Stage {args.stage} Curriculum Active")
     print(f"🎯 Training for {args.timesteps:,} timesteps\n")
 
     callback = SelfPlayCallback(ckpt_mgr, env, save_every=SAVE_EVERY_EPISODES)

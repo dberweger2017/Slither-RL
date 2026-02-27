@@ -167,6 +167,9 @@ class SlitherEnv(gymnasium.Env):
 
     def load_selfplay_from_dir(self, checkpoint_dir, n=6):
         """Load policies from checkpoint dir (used by SubprocVecEnv subprocesses)."""
+        if self.num_selfplay == 0:
+            return
+            
         import os
         from stable_baselines3 import PPO
         if not os.path.exists(checkpoint_dir):
