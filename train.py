@@ -16,6 +16,7 @@ import torch.nn as nn
 from stable_baselines3 import PPO
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 
 from slither_gym import SlitherEnv
 
@@ -78,32 +79,6 @@ class CheckpointManager:
         files = [f for f in os.listdir(self.checkpoint_dir) if f.startswith("policy_")]
         return sorted(files)
 
-    def load_opponents(self, env, n=6):
-        """Load n opponents with recency-weighted (exponential) sampling."""
-        checkpoints = self._list_checkpoints()
-        if not checkpoints:
-            print("  ⚡ No checkpoints yet — self-play agents use random actions")
-            env.set_selfplay_policies([])
-            return
-
-        n_ckpts = len(checkpoints)
-        weights = np.array([2.0 ** (i / max(n_ckpts, 1)) for i in range(n_ckpts)])
-        weights /= weights.sum()
-
-        chosen_indices = np.random.choice(n_ckpts, size=min(n, n_ckpts),
-                                          replace=True, p=weights)
-        policies = []
-        for idx in chosen_indices:
-            path = os.path.join(self.checkpoint_dir, checkpoints[idx])
-            try:
-                policies.append(PPO.load(path, device='cpu'))
-            except Exception as e:
-                print(f"  ⚠️  Failed to load {checkpoints[idx]}: {e}")
-
-        env.set_selfplay_policies(policies)
-        names = [checkpoints[i] for i in chosen_indices]
-        print(f"  🎯 Loaded {len(policies)} self-play opponents: {', '.join(names)}")
-
 
 class SelfPlayCallback(BaseCallback):
     def __init__(self, checkpoint_manager, env, save_every=SAVE_EVERY_EPISODES, verbose=1):
@@ -128,7 +103,7 @@ class SelfPlayCallback(BaseCallback):
 
     def _on_training_start(self):
         self.start_time = time.time()
-        self.ckpt_mgr.load_opponents(self.env, n=6)
+        self.env.env_method('load_selfplay_from_dir', CHECKPOINT_DIR, 6)
 
     def _on_step(self):
         infos = self.locals.get('infos', [])
@@ -198,7 +173,7 @@ class SelfPlayCallback(BaseCallback):
                 print(f"\n{'='*60}")
                 print(f"🏁 Checkpoint at episode {self.episode_count:,}")
                 self.ckpt_mgr.save(self.model, self.episode_count)
-                self.ckpt_mgr.load_opponents(self.env, n=6)
+                self.env.env_method('load_selfplay_from_dir', CHECKPOINT_DIR, 6)
                 self.last_save_episode = self.episode_count
                 self.death_causes = {'collision': 0, 'wall': 0, 'survived': 0}
                 print(f"{'='*60}\n")
@@ -212,13 +187,23 @@ def main():
                        help='Resume from checkpoint ("latest" or path)')
     parser.add_argument('--timesteps', type=int, default=TOTAL_TIMESTEPS)
     parser.add_argument('--render', action='store_true')
+    parser.add_argument('--num-envs', type=int, default=4, help='Number of parallel envs')
     args = parser.parse_args()
 
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-    render_mode = 'human' if args.render else None
-    env = SlitherEnv(num_scripted=9, num_selfplay=6, render_mode=render_mode)
+    def make_env(rank):
+        def _init():
+            render_mode = 'human' if (args.render and rank == 0) else None
+            return SlitherEnv(num_scripted=9, num_selfplay=6, render_mode=render_mode)
+        return _init
+
+    if args.render or args.num_envs == 1:
+        env = DummyVecEnv([make_env(0)])
+    else:
+        env = SubprocVecEnv([make_env(i) for i in range(args.num_envs)])
+
     ckpt_mgr = CheckpointManager()
 
     model = None
@@ -261,7 +246,7 @@ def main():
 
     total_params = sum(p.numel() for p in model.policy.parameters())
     print(f"🧠 Model parameters: {total_params:,}")
-    print(f"🎮 Environment: 1 agent + 9 scripted + 6 self-play = 16 snakes")
+    print(f"🎮 Environment: {env.num_envs}x (1 agent + 9 scripted + 6 self-play = 16 snakes)")
     print(f"📺 Render: {'ON' if args.render else 'OFF'}")
     print(f"🎯 Training for {args.timesteps:,} timesteps\n")
 
