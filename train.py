@@ -240,13 +240,18 @@ def main():
     model = None
     if args.resume:
         if args.resume == 'latest':
-            checkpoints = ckpt_mgr._list_checkpoints()
-            if checkpoints:
-                path = os.path.join(CHECKPOINT_DIR, checkpoints[-1])
-                print(f"📂 Resuming from: {checkpoints[-1]}")
+            if os.path.exists(os.path.join(CHECKPOINT_DIR, "policy_final.zip")):
+                path = os.path.join(CHECKPOINT_DIR, "policy_final.zip")
+                print(f"📂 Resuming from final save: policy_final.zip")
                 model = PPO.load(path, env=env, device=device, tensorboard_log=LOG_DIR)
             else:
-                print("⚠️  No checkpoints found, starting fresh")
+                checkpoints = ckpt_mgr._list_checkpoints()
+                if checkpoints:
+                    path = os.path.join(CHECKPOINT_DIR, checkpoints[-1])
+                    print(f"📂 Resuming from: {checkpoints[-1]}")
+                    model = PPO.load(path, env=env, device=device, tensorboard_log=LOG_DIR)
+                else:
+                    print("⚠️  No checkpoints found, starting fresh")
         else:
             model = PPO.load(args.resume, env=env, device=device, tensorboard_log=LOG_DIR)
 
