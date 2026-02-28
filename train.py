@@ -237,23 +237,29 @@ def main():
 
     ckpt_mgr = CheckpointManager()
 
+    custom_objects = {
+        "learning_rate": 5e-5,
+        "clip_range": 0.2,
+        "target_kl": 0.015
+    }
+
     model = None
     if args.resume:
         if args.resume == 'latest':
             if os.path.exists(os.path.join(CHECKPOINT_DIR, "policy_final.zip")):
                 path = os.path.join(CHECKPOINT_DIR, "policy_final.zip")
                 print(f"📂 Resuming from final save: policy_final.zip")
-                model = PPO.load(path, env=env, device=device, tensorboard_log=LOG_DIR)
+                model = PPO.load(path, env=env, custom_objects=custom_objects, device=device, tensorboard_log=LOG_DIR)
             else:
                 checkpoints = ckpt_mgr._list_checkpoints()
                 if checkpoints:
                     path = os.path.join(CHECKPOINT_DIR, checkpoints[-1])
                     print(f"📂 Resuming from: {checkpoints[-1]}")
-                    model = PPO.load(path, env=env, device=device, tensorboard_log=LOG_DIR)
+                    model = PPO.load(path, env=env, custom_objects=custom_objects, device=device, tensorboard_log=LOG_DIR)
                 else:
                     print("⚠️  No checkpoints found, starting fresh")
         else:
-            model = PPO.load(args.resume, env=env, device=device, tensorboard_log=LOG_DIR)
+            model = PPO.load(args.resume, env=env, custom_objects=custom_objects, device=device, tensorboard_log=LOG_DIR)
 
     if model is None:
         policy_kwargs = {
@@ -264,7 +270,9 @@ def main():
         model = PPO(
             'MultiInputPolicy', env,
             policy_kwargs=policy_kwargs,
-            learning_rate=3e-4,
+            #learning_rate=3e-4,
+            learning_rate=5e-5,
+            target_kl=0.015,
             n_steps=8192,
             batch_size=256,
             n_epochs=10,
