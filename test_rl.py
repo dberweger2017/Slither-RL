@@ -329,7 +329,7 @@ def main():
         # Scripted bot AI
         for snake in snakes:
             if snake.role == 'scripted' and not snake.dead:
-                bot_ai.update(snake, foods, snakes, WORLD_RADIUS)
+                bot_ai.update(snake, foods, snakes, WORLD_RADIUS, segment_grid)
 
         # Update all snakes
         for snake in snakes:

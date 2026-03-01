@@ -222,7 +222,7 @@ def main():
     def make_env(rank):
         def _init():
             render_mode = 'human' if (args.render and rank == 0) else None
-            num_scripted = 9 if args.stage >= 2 else 0
+            num_scripted = 20 if args.stage >= 2 else 0
             num_selfplay = 6 if args.stage == 3 else 0
             return SlitherEnv(num_scripted=num_scripted, num_selfplay=num_selfplay, render_mode=render_mode)
         return _init
@@ -290,7 +290,7 @@ def main():
 
     total_params = sum(p.numel() for p in model.policy.parameters())
     print(f"🧠 Model parameters: {total_params:,}")
-    num_scripted = 9 if args.stage >= 2 else 0
+    num_scripted = 20 if args.stage >= 2 else 0
     num_selfplay = 6 if args.stage == 3 else 0
     print(f"🎮 Environment: {env.num_envs}x (1 agent + {num_scripted} scripted + {num_selfplay} self-play = {1 + num_scripted + num_selfplay} snakes)")
     print(f"📺 Render: {'ON' if args.render else 'OFF'}")

@@ -303,7 +303,7 @@ class SlitherEnv(gymnasium.Env):
 
         for snake in self.snakes:
             if snake.role == 'scripted' and not snake.dead:
-                bot_ai.update(snake, self.foods, self.snakes, self.world_radius)
+                bot_ai.update(snake, self.foods, self.snakes, self.world_radius, self.segment_grid)
 
         for snake in self.snakes:
             snake.update()
@@ -401,14 +401,14 @@ class SlitherEnv(gymnasium.Env):
         reward = 0.0
         mass_diff = self.player.mass - self.prev_mass
         if mass_diff > 0:
-            # Massive incentive to eat food
-            reward += mass_diff / 10.0
+            # Major incentive to eat food
+            reward += mass_diff / 5.0
         else:
-            # Softer penalty for losing mass via boosting
-            reward += mass_diff / 200.0
+            # Near-free boosting to encourage hunting
+            reward += mass_diff / 100.0
         if self.pending_kill_mass > 0:
-            reward += self.pending_kill_mass / 500.0
-        reward += 0.001
+            reward += self.pending_kill_mass / 1.0
+        # Neutral survival — no reward or penalty for existing
         if self.player.dead:
             return -10.0
         dist_to_wall = self.world_radius - math.hypot(
