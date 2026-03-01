@@ -1,9 +1,11 @@
 """
 PPO Training Script for Slither.io with Fictitious Self-Play.
+Supports both standard PPO and Recurrent PPO (LSTM).
 
 Usage:
-    python train.py                  # Train from scratch
-    python train.py --resume latest  # Resume from latest checkpoint
+    python train.py                          # Train LSTM from scratch
+    python train.py --resume latest          # Resume from latest checkpoint
+    python train.py --no-lstm               # Use standard PPO instead
 """
 import os
 import time
@@ -14,6 +16,7 @@ import torch
 import torch.nn as nn
 
 from stable_baselines3 import PPO
+from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecMonitor
@@ -28,7 +31,7 @@ MAX_CHECKPOINTS = 50
 
 
 class SlitherFeatureExtractor(BaseFeaturesExtractor):
-    """Nature CNN for 5-channel map + MLP for 8-float proprioception → 576-dim."""
+    """Refined 3x3 CNN for 5-channel map + MLP for 8-float proprioception → 576-dim."""
 
     def __init__(self, observation_space, features_dim=576):
         super().__init__(observation_space, features_dim)
@@ -82,13 +85,14 @@ class CheckpointManager:
 
 class SelfPlayCallback(BaseCallback):
     def __init__(self, checkpoint_manager, env, save_every=SAVE_EVERY_EPISODES,
-                 record_every=500, stage=3, verbose=1):
+                 record_every=500, stage=3, use_lstm=True, verbose=1):
         super().__init__(verbose)
         self.ckpt_mgr = checkpoint_manager
         self.env = env
         self.save_every = save_every
         self.record_every = record_every
         self.stage = stage
+        self.use_lstm = use_lstm
         self.episode_count = 0
         self.last_save_episode = 0
         self.last_record_episode = 0
@@ -112,19 +116,17 @@ class SelfPlayCallback(BaseCallback):
     def _on_step(self):
         infos = self.locals.get('infos', [])
         for info in infos:
-            # VecMonitor stores the unmonitored info directly, but sometimes wraps it in 'episode'
             ep_info = info.get('episode', info)
-            
-            # Only log terminal states
+
             if not ('terminal_observation' in info or 'episode' in info):
                 continue
-                
+
             self.episode_count += 1
             if 'r' in ep_info:
                 self.ep_rewards.append(ep_info['r'])
             if 'l' in ep_info:
                 self.ep_lengths.append(ep_info['l'])
-                
+
             self.ep_masses.append(info.get('mass', 0))
             self.ep_peak_masses.append(info.get('peak_mass', 0))
             self.ep_kills.append(info.get('kills', 0))
@@ -166,7 +168,8 @@ class SelfPlayCallback(BaseCallback):
                 elapsed = time.time() - self.start_time
                 eps_per_sec = self.episode_count / elapsed if elapsed > 0 else 0
 
-                print(f"\n📊 Episode {self.episode_count:,} "
+                arch = "LSTM" if self.use_lstm else "FFN"
+                print(f"\n📊 Episode {self.episode_count:,} [{arch}] "
                       f"({self.num_timesteps:,} steps, {elapsed/60:.1f}min, "
                       f"{eps_per_sec:.1f} ep/s)")
                 print(f"   Reward: {np.mean(self.ep_rewards[-n:]):+.2f} | "
@@ -185,12 +188,11 @@ class SelfPlayCallback(BaseCallback):
                 print(f"\n{'='*60}")
                 print(f"🏁 Checkpoint at episode {self.episode_count:,}")
                 self.ckpt_mgr.save(self.model, self.episode_count)
-                
-                # Retrieve the underlying SubprocVecEnv from the VecMonitor wrapper
+
                 base_env = self.training_env
                 if hasattr(base_env, 'venv'):
                     base_env = base_env.venv
-                
+
                 base_env.env_method('load_selfplay_from_dir', CHECKPOINT_DIR, 6)
                 self.last_save_episode = self.episode_count
                 self.death_causes = {'collision': 0, 'wall': 0, 'survived': 0}
@@ -212,15 +214,26 @@ class SelfPlayCallback(BaseCallback):
             obs, _ = eval_env.reset()
 
             frames = []
-            max_frames = 600  # Cap at 600 frames
+            max_frames = 600
             done = False
 
+            # LSTM needs hidden state tracking
+            lstm_states = None
+            episode_start = np.ones((1,), dtype=bool)
+
             while not done and len(frames) < max_frames:
-                action, _ = self.model.predict(obs, deterministic=True)
+                if self.use_lstm:
+                    action, lstm_states = self.model.predict(
+                        obs, state=lstm_states,
+                        episode_start=episode_start,
+                        deterministic=True)
+                    episode_start = np.zeros((1,), dtype=bool)
+                else:
+                    action, _ = self.model.predict(obs, deterministic=True)
+
                 obs, reward, terminated, truncated, info = eval_env.step(action)
                 done = terminated or truncated
 
-                # Capture every 3rd frame to reduce size
                 if len(frames) * 3 <= eval_env.step_count:
                     frame = eval_env.render_to_array(width=400, height=300)
                     frames.append(frame)
@@ -230,12 +243,10 @@ class SelfPlayCallback(BaseCallback):
             if len(frames) < 10:
                 return
 
-            # Write to TensorBoard: expects (N, T, C, H, W)
             import torch
             video_tensor = torch.from_numpy(
-                np.stack(frames)).permute(0, 3, 1, 2).unsqueeze(0)  # (1, T, C, H, W)
+                np.stack(frames)).permute(0, 3, 1, 2).unsqueeze(0)
 
-            # Access the underlying SummaryWriter
             writer = None
             if hasattr(self.logger, 'writer'):
                 writer = self.logger.writer
@@ -269,7 +280,11 @@ def main():
                        help='Training stage (1: food only, 2: bots, 3: full self-play)')
     parser.add_argument('--record-every', type=int, default=500,
                        help='Record an eval episode to TensorBoard every N episodes (0=disabled)')
+    parser.add_argument('--no-lstm', action='store_true',
+                       help='Use standard PPO instead of RecurrentPPO (LSTM)')
     args = parser.parse_args()
+
+    use_lstm = not args.no_lstm
 
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
@@ -297,15 +312,17 @@ def main():
     else:
         env = SubprocVecEnv([make_env(i) for i in range(args.num_envs)])
 
-    # Wrap explicitly in VecMonitor so that info['episode'] is always generated for TensorBoard callbacks
     env = VecMonitor(env)
 
     ckpt_mgr = CheckpointManager()
 
+    PPO_class = RecurrentPPO if use_lstm else PPO
+    policy_name = 'MultiInputLstmPolicy' if use_lstm else 'MultiInputPolicy'
+    arch_name = "RecurrentPPO (LSTM)" if use_lstm else "PPO (Feedforward)"
+
     custom_objects = {
         "learning_rate": 5e-5,
         "clip_range": 0.2,
-        "target_kl": 0.015
     }
 
     model = None
@@ -314,17 +331,20 @@ def main():
             if os.path.exists(os.path.join(CHECKPOINT_DIR, "policy_final.zip")):
                 path = os.path.join(CHECKPOINT_DIR, "policy_final.zip")
                 print(f"📂 Resuming from final save: policy_final.zip")
-                model = PPO.load(path, env=env, custom_objects=custom_objects, device=device, tensorboard_log=LOG_DIR)
+                model = PPO_class.load(path, env=env, custom_objects=custom_objects,
+                                       device=device, tensorboard_log=LOG_DIR)
             else:
                 checkpoints = ckpt_mgr._list_checkpoints()
                 if checkpoints:
                     path = os.path.join(CHECKPOINT_DIR, checkpoints[-1])
                     print(f"📂 Resuming from: {checkpoints[-1]}")
-                    model = PPO.load(path, env=env, custom_objects=custom_objects, device=device, tensorboard_log=LOG_DIR)
+                    model = PPO_class.load(path, env=env, custom_objects=custom_objects,
+                                           device=device, tensorboard_log=LOG_DIR)
                 else:
                     print("⚠️  No checkpoints found, starting fresh")
         else:
-            model = PPO.load(args.resume, env=env, custom_objects=custom_objects, device=device, tensorboard_log=LOG_DIR)
+            model = PPO_class.load(args.resume, env=env, custom_objects=custom_objects,
+                                   device=device, tensorboard_log=LOG_DIR)
 
     if model is None:
         policy_kwargs = {
@@ -332,38 +352,64 @@ def main():
             'features_extractor_kwargs': {'features_dim': 576},
             'net_arch': dict(pi=[256, 128], vf=[256, 128]),
         }
-        model = PPO(
-            'MultiInputPolicy', env,
-            policy_kwargs=policy_kwargs,
-            #learning_rate=3e-4,
-            learning_rate=5e-5,
-            target_kl=0.015,
-            n_steps=8192,
-            batch_size=256,
-            n_epochs=10,
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_range=0.2,
-            ent_coef=0.01,
-            vf_coef=0.5,
-            max_grad_norm=0.5,
-            verbose=1,
-            tensorboard_log=LOG_DIR,
-            device=device,
-        )
-        print("🆕 Created fresh PPO model")
+        if use_lstm:
+            policy_kwargs['lstm_hidden_size'] = 256
+            policy_kwargs['n_lstm_layers'] = 1
+            policy_kwargs['share_features_extractor'] = True
+
+        # LSTM needs smaller n_steps (BPTT unroll length) and batch_size
+        if use_lstm:
+            model = RecurrentPPO(
+                policy_name, env,
+                policy_kwargs=policy_kwargs,
+                learning_rate=5e-5,
+                n_steps=128,
+                batch_size=128,
+                n_epochs=10,
+                gamma=0.99,
+                gae_lambda=0.95,
+                clip_range=0.2,
+                ent_coef=0.01,
+                vf_coef=0.5,
+                max_grad_norm=0.5,
+                verbose=1,
+                tensorboard_log=LOG_DIR,
+                device=device,
+            )
+        else:
+            model = PPO(
+                policy_name, env,
+                policy_kwargs=policy_kwargs,
+                learning_rate=5e-5,
+                target_kl=0.015,
+                n_steps=8192,
+                batch_size=256,
+                n_epochs=10,
+                gamma=0.99,
+                gae_lambda=0.95,
+                clip_range=0.2,
+                ent_coef=0.01,
+                vf_coef=0.5,
+                max_grad_norm=0.5,
+                verbose=1,
+                tensorboard_log=LOG_DIR,
+                device=device,
+            )
+        print(f"🆕 Created fresh {arch_name} model")
 
     total_params = sum(p.numel() for p in model.policy.parameters())
     print(f"🧠 Model parameters: {total_params:,}")
     num_scripted = 20 if args.stage >= 2 else 0
     num_selfplay = 6 if args.stage == 3 else 0
+    print(f"🏗️  Architecture: {arch_name}")
     print(f"🎮 Environment: {env.num_envs}x (1 agent + {num_scripted} scripted + {num_selfplay} self-play = {1 + num_scripted + num_selfplay} snakes)")
     print(f"📺 Render: {'ON' if args.render else 'OFF'}")
     print(f"📈 Stage {args.stage} Curriculum Active")
     print(f"🎯 Training for {args.timesteps:,} timesteps\n")
 
     callback = SelfPlayCallback(ckpt_mgr, env, save_every=SAVE_EVERY_EPISODES,
-                                record_every=args.record_every, stage=args.stage)
+                                record_every=args.record_every, stage=args.stage,
+                                use_lstm=use_lstm)
 
     try:
         model.learn(total_timesteps=args.timesteps, callback=callback,
