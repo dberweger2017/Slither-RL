@@ -238,7 +238,8 @@ class SlitherEnv(gymnasium.Env):
         self.player.role = 'player'
         self.snakes = [self.player]
 
-        for btype in bot_ai.BOT_TYPES:
+        for i in range(self.num_scripted):
+            btype = bot_ai.BOT_TYPES[i % len(bot_ai.BOT_TYPES)]
             bx, by = self._random_point()
             s = SnakeEntity(bx, by, bot_type=btype)
             s.role = 'scripted'
