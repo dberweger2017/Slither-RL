@@ -119,7 +119,7 @@ class SlitherEnv(gymnasium.Env):
     Observation: Dict{'map': (5,84,84), 'state': (8,)}
     Action: Box[-1,1] x Box[0,1] = (steering, boost)
     """
-    metadata = {'render_modes': ['human'], 'render_fps': 60}
+    metadata = {'render_modes': ['human', 'rgb_array'], 'render_fps': 60}
 
     def __init__(self, num_scripted=9, num_selfplay=6, world_radius=2000,
                  food_count=500, max_steps=3000, render_mode=None):
@@ -599,6 +599,58 @@ class SlitherEnv(gymnasium.Env):
             import pygame
             pygame.quit()
             self._screen = None
+
+    def render_to_array(self, width=400, height=300):
+        """Offscreen render to numpy array (H, W, 3) for video recording."""
+        import pygame
+        if not pygame.get_init():
+            pygame.init()
+        surface = pygame.Surface((width, height))
+        surface.fill((20, 20, 20))
+        if not self.player.dead:
+            cam_x = self.player.head[0] - width // 2
+            cam_y = self.player.head[1] - height // 2
+
+            # World boundary
+            cx_s, cy_s = int(-cam_x), int(-cam_y)
+            pygame.draw.circle(surface, (60, 30, 30), (cx_s, cy_s),
+                             int(self.world_radius), 2)
+
+            for food in self.foods:
+                fx, fy = int(food.x - cam_x), int(food.y - cam_y)
+                if 0 <= fx < width and 0 <= fy < height:
+                    color = (100, 255, 100) if food.value <= 1 else (255, 200, 50)
+                    pygame.draw.circle(surface, color, (fx, fy),
+                                     max(2, int(food.radius * 0.6)))
+            for snake in self.snakes:
+                if snake.dead:
+                    continue
+                color = (0, 200, 255) if snake.is_player else snake.color
+                for seg in snake.segments:
+                    sx, sy = int(seg[0] - cam_x), int(seg[1] - cam_y)
+                    if -20 < sx < width + 20 and -20 < sy < height + 20:
+                        pygame.draw.circle(surface, color, (sx, sy),
+                                         max(2, int(snake.radius * 0.8)))
+                hx_s = int(snake.head[0] - cam_x)
+                hy_s = int(snake.head[1] - cam_y)
+                if -20 < hx_s < width + 20 and -20 < hy_s < height + 20:
+                    pygame.draw.circle(surface, (255, 255, 255),
+                                     (hx_s, hy_s), max(3, int(snake.radius * 0.5)))
+
+            # Overlay: mass + kills
+            font = pygame.font.SysFont(None, 22)
+            info_text = f'Mass:{self.player.mass:.0f}  Kills:{self.player.kills}  Food:{self.food_eaten}  Step:{self.step_count}'
+            text_surf = font.render(info_text, True, (220, 220, 220))
+            surface.blit(text_surf, (5, 5))
+        else:
+            font = pygame.font.SysFont(None, 28)
+            text_surf = font.render('DEAD', True, (255, 80, 80))
+            surface.blit(text_surf, (width // 2 - 25, height // 2))
+
+        # Convert to numpy
+        arr = pygame.surfarray.array3d(surface)  # (W, H, 3)
+        arr = arr.transpose(1, 0, 2)  # (H, W, 3)
+        return arr
 
 
 if __name__ == '__main__':

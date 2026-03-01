@@ -81,13 +81,17 @@ class CheckpointManager:
 
 
 class SelfPlayCallback(BaseCallback):
-    def __init__(self, checkpoint_manager, env, save_every=SAVE_EVERY_EPISODES, verbose=1):
+    def __init__(self, checkpoint_manager, env, save_every=SAVE_EVERY_EPISODES,
+                 record_every=500, stage=3, verbose=1):
         super().__init__(verbose)
         self.ckpt_mgr = checkpoint_manager
         self.env = env
         self.save_every = save_every
+        self.record_every = record_every
+        self.stage = stage
         self.episode_count = 0
         self.last_save_episode = 0
+        self.last_record_episode = 0
         self.start_time = None
 
         self.ep_rewards = []
@@ -192,7 +196,66 @@ class SelfPlayCallback(BaseCallback):
                 self.death_causes = {'collision': 0, 'wall': 0, 'survived': 0}
                 print(f"{'='*60}\n")
 
+            # Video recording
+            if (self.record_every > 0 and
+                    self.episode_count - self.last_record_episode >= self.record_every):
+                self._record_eval_episode()
+                self.last_record_episode = self.episode_count
+
         return True
+
+    def _record_eval_episode(self):
+        """Run one evaluation episode, capture frames, push video to TensorBoard."""
+        try:
+            num_scripted = 20 if self.stage >= 2 else 0
+            eval_env = SlitherEnv(num_scripted=num_scripted, num_selfplay=0, max_steps=1500)
+            obs, _ = eval_env.reset()
+
+            frames = []
+            max_frames = 600  # Cap at 600 frames
+            done = False
+
+            while not done and len(frames) < max_frames:
+                action, _ = self.model.predict(obs, deterministic=True)
+                obs, reward, terminated, truncated, info = eval_env.step(action)
+                done = terminated or truncated
+
+                # Capture every 3rd frame to reduce size
+                if len(frames) * 3 <= eval_env.step_count:
+                    frame = eval_env.render_to_array(width=400, height=300)
+                    frames.append(frame)
+
+            eval_env.close()
+
+            if len(frames) < 10:
+                return
+
+            # Write to TensorBoard: expects (N, T, C, H, W)
+            import torch
+            video_tensor = torch.from_numpy(
+                np.stack(frames)).permute(0, 3, 1, 2).unsqueeze(0)  # (1, T, C, H, W)
+
+            # Access the underlying SummaryWriter
+            writer = None
+            if hasattr(self.logger, 'writer'):
+                writer = self.logger.writer
+            elif hasattr(self.logger, '_logger'):
+                writer = getattr(self.logger._logger, 'writer', None)
+
+            if writer is not None:
+                writer.add_video(
+                    'slither/gameplay', video_tensor,
+                    global_step=self.episode_count, fps=20)
+                writer.flush()
+                print(f"  🎬 Recorded eval episode: {len(frames)} frames, "
+                      f"mass={info.get('mass', 0):.0f}, "
+                      f"kills={info.get('kills', 0)}, "
+                      f"food={info.get('food_eaten', 0)}")
+            else:
+                print(f"  ⚠️  Could not find TensorBoard writer for video logging")
+
+        except Exception as e:
+            print(f"  ⚠️  Video recording failed: {e}")
 
 
 def main():
@@ -204,6 +267,8 @@ def main():
     parser.add_argument('--num-envs', type=int, default=4, help='Number of parallel envs')
     parser.add_argument('--stage', type=int, default=3, choices=[1, 2, 3],
                        help='Training stage (1: food only, 2: bots, 3: full self-play)')
+    parser.add_argument('--record-every', type=int, default=500,
+                       help='Record an eval episode to TensorBoard every N episodes (0=disabled)')
     args = parser.parse_args()
 
     os.makedirs(LOG_DIR, exist_ok=True)
@@ -297,7 +362,8 @@ def main():
     print(f"📈 Stage {args.stage} Curriculum Active")
     print(f"🎯 Training for {args.timesteps:,} timesteps\n")
 
-    callback = SelfPlayCallback(ckpt_mgr, env, save_every=SAVE_EVERY_EPISODES)
+    callback = SelfPlayCallback(ckpt_mgr, env, save_every=SAVE_EVERY_EPISODES,
+                                record_every=args.record_every, stage=args.stage)
 
     try:
         model.learn(total_timesteps=args.timesteps, callback=callback,
