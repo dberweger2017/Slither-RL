@@ -1,0 +1,811 @@
+{
+  "version": 1,
+  "bot_type": "interceptor",
+  "total_frames": 100000,
+  "chunk_size": 512,
+  "map_shape": [
+    5,
+    168,
+    168
+  ],
+  "state_shape": [
+    8
+  ],
+  "action_shape": [
+    2
+  ],
+  "map_dtype": "uint8",
+  "num_scripted": 10,
+  "world_radius": 2000,
+  "food_count": 500,
+  "max_steps": 3000,
+  "seed": 0,
+  "chunks": [
+    {
+      "file": "chunk_00000.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00001.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00002.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00003.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00004.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00005.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00006.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00007.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00008.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00009.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00010.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00011.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00012.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00013.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00014.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00015.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00016.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00017.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00018.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00019.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00020.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00021.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00022.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00023.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00024.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00025.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00026.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00027.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00028.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00029.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00030.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00031.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00032.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00033.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00034.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00035.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00036.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00037.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00038.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00039.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00040.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00041.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00042.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00043.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00044.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00045.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00046.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00047.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00048.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00049.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00050.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00051.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00052.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00053.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00054.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00055.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00056.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00057.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00058.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00059.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00060.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00061.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00062.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00063.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00064.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00065.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00066.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00067.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00068.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00069.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00070.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00071.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00072.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00073.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00074.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00075.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00076.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00077.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00078.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00079.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00080.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00081.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00082.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00083.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00084.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00085.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00086.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00087.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00088.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00089.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00090.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00091.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00092.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00093.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00094.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00095.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00096.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00097.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00098.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00099.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00100.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00101.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00102.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00103.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00104.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00105.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00106.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00107.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00108.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00109.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00110.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00111.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00112.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00113.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00114.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00115.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00116.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00117.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00118.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00119.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00120.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00121.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00122.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00123.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00124.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00125.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00126.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00127.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00128.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00129.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00130.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00131.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00132.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00133.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00134.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00135.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00136.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00137.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00138.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00139.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00140.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00141.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00142.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00143.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00144.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00145.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00146.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00147.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00148.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00149.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00150.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00151.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00152.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00153.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00154.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00155.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00156.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00157.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00158.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00159.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00160.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00161.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00162.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00163.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00164.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00165.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00166.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00167.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00168.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00169.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00170.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00171.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00172.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00173.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00174.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00175.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00176.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00177.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00178.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00179.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00180.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00181.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00182.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00183.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00184.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00185.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00186.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00187.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00188.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00189.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00190.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00191.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00192.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00193.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00194.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00195.npz",
+      "frames": 160
+    }
+  ],
+  "num_chunks": 196,
+  "episodes": 61
+}
