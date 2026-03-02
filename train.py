@@ -357,14 +357,14 @@ def main():
             policy_kwargs['n_lstm_layers'] = 1
             policy_kwargs['share_features_extractor'] = True
 
-        # LSTM needs smaller n_steps (BPTT unroll length) and batch_size
+        # LSTM: longer unroll for temporal context, larger batch for GPU throughput
         if use_lstm:
             model = RecurrentPPO(
                 policy_name, env,
                 policy_kwargs=policy_kwargs,
                 learning_rate=5e-5,
-                n_steps=128,
-                batch_size=128,
+                n_steps=512,
+                batch_size=512,
                 n_epochs=10,
                 gamma=0.99,
                 gae_lambda=0.95,
@@ -383,7 +383,7 @@ def main():
                 learning_rate=5e-5,
                 target_kl=0.015,
                 n_steps=8192,
-                batch_size=256,
+                batch_size=1024,
                 n_epochs=10,
                 gamma=0.99,
                 gae_lambda=0.95,
