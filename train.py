@@ -41,7 +41,7 @@ class SlitherFeatureExtractor(BaseFeaturesExtractor):
             nn.Conv2d(n_channels, 32, kernel_size=3, stride=2, padding=1), nn.ReLU(),  # 168 -> 84
             nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.ReLU(),          # 84 -> 42
             nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1), nn.ReLU(),          # 42 -> 21
-            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1), nn.ReLU(),          # 21 -> 11
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.ReLU(),         # 21 -> 11
             nn.Flatten(),
         )
         with torch.no_grad():
@@ -379,6 +379,13 @@ def main():
                 print(f"📂 Resuming from final save: policy_final.zip")
                 model = PPO_class.load(path, env=env, custom_objects=custom_objects,
                                        device=device, tensorboard_log=LOG_DIR)
+                expected_shape = model.observation_space.spaces['map'].shape
+                if expected_shape != (5, 168, 168):
+                    print(f"Error: Cannot resume training from {path}.")
+                    print(f"       Incompatible observation shape {expected_shape} (expected (5, 168, 168)).")
+                    print("       Please start a new training run without --resume, or clear checkpoints.")
+                    import sys
+                    sys.exit(1)
             else:
                 checkpoints = ckpt_mgr._list_checkpoints()
                 if checkpoints:
@@ -386,11 +393,25 @@ def main():
                     print(f"📂 Resuming from: {checkpoints[-1]}")
                     model = PPO_class.load(path, env=env, custom_objects=custom_objects,
                                            device=device, tensorboard_log=LOG_DIR)
+                    expected_shape = model.observation_space.spaces['map'].shape
+                    if expected_shape != (5, 168, 168):
+                        print(f"Error: Cannot resume training from {path}.")
+                        print(f"       Incompatible observation shape {expected_shape} (expected (5, 168, 168)).")
+                        print("       Please start a new training run without --resume, or clear checkpoints.")
+                        import sys
+                        sys.exit(1)
                 else:
                     print("⚠️  No checkpoints found, starting fresh")
         else:
             model = PPO_class.load(args.resume, env=env, custom_objects=custom_objects,
                                    device=device, tensorboard_log=LOG_DIR)
+            expected_shape = model.observation_space.spaces['map'].shape
+            if expected_shape != (5, 168, 168):
+                print(f"Error: Cannot resume training from {args.resume}.")
+                print(f"       Incompatible observation shape {expected_shape} (expected (5, 168, 168)).")
+                print("       Please start a new training run without --resume, or clear checkpoints.")
+                import sys
+                sys.exit(1)
 
     if model is None:
         policy_kwargs = {

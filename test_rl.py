@@ -222,15 +222,29 @@ def load_rl_opponents(n=6):
         if HAS_RECURRENT:
             try:
                 model = RecurrentPPO.load(path, device=device, custom_objects=custom_objects)
+                
+                # Check for observation shape compatibility
+                expected_shape = model.observation_space.spaces['map'].shape
+                if expected_shape != (5, 168, 168):
+                    print(f"  Skipping {files[idx]}: Incompatible observation shape {expected_shape} (expected (5, 168, 168))")
+                    continue
+                    
                 models.append(model)
                 IS_LSTM = True
                 loaded = True
                 print(f"  Loaded (LSTM): {files[idx]}")
-            except Exception:
+            except Exception as e:
                 pass
         if not loaded:
             try:
                 model = PPO.load(path, device=device, custom_objects=custom_objects)
+                
+                # Check for observation shape compatibility
+                expected_shape = model.observation_space.spaces['map'].shape
+                if expected_shape != (5, 168, 168):
+                    print(f"  Skipping {files[idx]}: Incompatible observation shape {expected_shape} (expected (5, 168, 168))")
+                    continue
+                    
                 models.append(model)
                 loaded = True
                 print(f"  Loaded (PPO): {files[idx]}")
@@ -246,6 +260,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rl", type=int, default=6, help="Number of RL agents")
     parser.add_argument("--bots", type=int, default=9, help="Number of scripted bots")
+    parser.add_argument("--debug-vision", action="store_true", help="View agent observation channels fullscreen")
     args = parser.parse_args()
 
     pygame.init()
@@ -313,8 +328,18 @@ def main():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
-                elif event.key == pygame.K_v:
-                    vision_mode = (vision_mode + 1) % 6
+                elif event.key == pygame.K_1:
+                    vision_mode = 0
+                elif event.key == pygame.K_2:
+                    vision_mode = 1
+                elif event.key == pygame.K_3:
+                    vision_mode = 2
+                elif event.key == pygame.K_4:
+                    vision_mode = 3
+                elif event.key == pygame.K_5:
+                    vision_mode = 4
+                elif event.key == pygame.K_6:
+                    vision_mode = 5
 
         # Player input
         if not player.dead:
@@ -516,30 +541,24 @@ def main():
                     preview_y += 120
         else:
             if not player.dead:
-                channel_idx = vision_mode - 1
-                obs = obs_module.generate_observation(player, snakes, foods, food_grid, WORLD_RADIUS)
-                channel = obs[channel_idx]
-                tints = [
-                    (0, 200, 255), (255, 80, 80), (80, 255, 80),
-                    (255, 200, 50), (255, 100, 255),
-                ]
-                labels = ['Self', 'Enemy', 'Food', 'Boundary', 'Velocity']
-                rgb = np.zeros((obs_module.MAP_SIZE, obs_module.MAP_SIZE, 3), dtype=np.uint8)
-                for c in range(3):
-                    rgb[:, :, c] = (channel * tints[channel_idx][c]).clip(0, 255).astype(np.uint8)
-                surf = pygame.surfarray.make_surface(rgb.transpose(1, 0, 2))
-                scale_size = min(WIDTH, HEIGHT) - 80
-                surf = pygame.transform.scale(surf, (scale_size, scale_size))
-                x_offset = (WIDTH - scale_size) // 2
-                y_offset = (HEIGHT - scale_size) // 2
+                # Clear screen completely for debug vision map
+                screen.fill((0, 0, 0))
                 
-                # Render channel centered
-                pygame.draw.rect(screen, (30, 30, 30), (x_offset-10, y_offset-10, scale_size+20, scale_size+20))
-                screen.blit(surf, (x_offset, y_offset))
-
+                obs = obs_module.generate_observation(player, snakes, foods, food_grid, WORLD_RADIUS)
+                # Convert to viewable surfaces
+                surfaces = obs_module.obs_to_surfaces(obs, preview_size=600)
+                
+                channel_idx = vision_mode - 1
+                surf, label = surfaces[channel_idx]
+                
                 font_lg = pygame.font.SysFont(None, 48)
-                label_surf = font_lg.render(f"CNN View: {labels[channel_idx]} [V to toggle]", True, (255, 255, 255))
+                label_surf = font_lg.render(f"CNN View: {label} [1 to 6 to toggle]", True, (255, 255, 255))
                 screen.blit(label_surf, (20, 20))
+                
+                # Center the 600x600 surface
+                x_offset = (WIDTH - 600) // 2
+                y_offset = (HEIGHT - 600) // 2
+                screen.blit(surf, (x_offset, y_offset))
 
         # FPS counter
         current_fps = clock.get_fps()
