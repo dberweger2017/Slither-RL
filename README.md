@@ -2,6 +2,12 @@
 
 A complete Gymnasium environment, Python physics engine, and Stable Baselines 3 training pipeline designed to learn how to play Slither.io from scratch using visual CNN inputs and Recurrent PPO (LSTM) memory.
 
+## Demo Video
+
+<video src="./videos/eval_t000291552_ep0000000.mp4" controls muted playsinline width="960"></video>
+
+If the embedded player does not render in your GitHub view, open the video directly: [videos/eval_t000291552_ep0000000.mp4](./videos/eval_t000291552_ep0000000.mp4)
+
 ---
 
 ## 1. Features 🌟
