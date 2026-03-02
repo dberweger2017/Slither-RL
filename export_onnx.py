@@ -76,9 +76,9 @@ def export_model(model_path, output_path="slither_policy.onnx"):
     onnxable_model.eval()
     
     # Create dummy inputs that match the observation space exactly
-    # map: [1, 5, 84, 84] float32
+    # map: [1, 5, 168, 168] float32
     # state: [1, 8] float32
-    dummy_map = torch.zeros(1, 5, 84, 84, dtype=torch.float32)
+    dummy_map = torch.zeros(1, 5, 168, 168, dtype=torch.float32)
     dummy_state = torch.zeros(1, 8, dtype=torch.float32)
     
     print(f"Exporting to {output_path}...")

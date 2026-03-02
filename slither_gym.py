@@ -116,7 +116,7 @@ class SnakeEntity:
 class SlitherEnv(gymnasium.Env):
     """
     Slither.io Gymnasium Environment with Self-Play.
-    Observation: Dict{'map': (5,84,84), 'state': (8,)}
+    Observation: Dict{'map': (5,168,168), 'state': (8,)}
     Action: Box[-1,1] x Box[0,1] = (steering, boost)
     """
     metadata = {'render_modes': ['human', 'rgb_array'], 'render_fps': 60}
@@ -606,7 +606,7 @@ class SlitherEnv(gymnasium.Env):
 
         # ── Observation channel previews ──
         if self._last_obs is not None:
-            obs_map = self._last_obs['map']  # (5, 84, 84)
+            obs_map = self._last_obs['map']  # (5, 168, 168)
             labels = ['Self', 'Enemy', 'Food', 'Bound', 'Vel']
             tints = [
                 (0, 200, 255), (255, 80, 80), (80, 255, 80),
