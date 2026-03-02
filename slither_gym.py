@@ -159,6 +159,10 @@ class SlitherEnv(gymnasium.Env):
         self.prev_mass = START_MASS
         self.pending_kill_mass = 0
         self.loot_bonus_timer = 0
+        self.player_food_mass_small_step = 0.0
+        self.player_food_mass_big_step = 0.0
+        self._reward_totals = {}
+        self._reset_reward_totals()
 
         # Episode-level metric tracking
         self.peak_mass = START_MASS
@@ -230,6 +234,22 @@ class SlitherEnv(gymnasium.Env):
             for seg in snake.segments[3:]:
                 self.segment_grid.insert((snake, seg), seg[0], seg[1])
 
+    def _reset_reward_totals(self):
+        self._reward_totals = {
+            'time_penalty': 0.0,
+            'food_reward': 0.0,
+            'food_reward_small': 0.0,
+            'food_reward_big': 0.0,
+            'boost_penalty': 0.0,
+            'kill_reward': 0.0,
+            'proximity_reward': 0.0,
+            'loot_bonus_reward': 0.0,
+        }
+
+    def _accumulate_reward_breakdown(self, reward_breakdown):
+        for key in self._reward_totals:
+            self._reward_totals[key] += float(reward_breakdown.get(key, 0.0))
+
     def expert_action_for_player(self, bot_type='interceptor'):
         """
         Compute (steering, boost) action for the current player using a scripted bot.
@@ -289,11 +309,14 @@ class SlitherEnv(gymnasium.Env):
         self.boost_frames = 0
         self.loot_bonus_timer = 0
         self.loot_bonus_frames = 0
+        self.player_food_mass_small_step = 0.0
+        self.player_food_mass_big_step = 0.0
         self.wall_close_frames = 0
         self.death_cause = 'alive'
         self._cumulative_reward = 0.0
         self._last_action = np.array([0.0, 0.0])
         self._last_reward = 0.0
+        self._reset_reward_totals()
 
         px, py = self._random_point()
         self.player = SnakeEntity(px, py, is_player=True)
@@ -328,6 +351,8 @@ class SlitherEnv(gymnasium.Env):
     def step(self, action):
         self.step_count += 1
         self.pending_kill_mass = 0
+        self.player_food_mass_small_step = 0.0
+        self.player_food_mass_big_step = 0.0
         if self.loot_bonus_timer > 0:
             self.loot_bonus_timer -= 1
 
@@ -402,9 +427,14 @@ class SlitherEnv(gymnasium.Env):
                 dist = math.hypot(snake.head[0] - food.x, snake.head[1] - food.y)
                 if dist < snake.radius + food.radius:
                     eaten.append(food)
-                    snake.mass += food.value * MASS_PER_FOOD
+                    mass_gain = food.value * MASS_PER_FOOD
+                    snake.mass += mass_gain
                     if snake.is_player:
                         self.food_eaten += 1
+                        if food.value <= 1:
+                            self.player_food_mass_small_step += mass_gain
+                        else:
+                            self.player_food_mass_big_step += mass_gain
         for food in eaten:
             if food in self.foods:
                 self.foods.remove(food)
@@ -443,6 +473,7 @@ class SlitherEnv(gymnasium.Env):
                 self.safe_space_frames += 1
 
         reward, reward_breakdown = self._compute_reward()
+        self._accumulate_reward_breakdown(reward_breakdown)
         terminated = self.player.dead
         truncated = self.step_count >= self.max_steps
 
@@ -474,7 +505,7 @@ class SlitherEnv(gymnasium.Env):
             'death_cause': self.death_cause,
             'time_to_100_mass': self.time_to_100_mass,
             'safe_space_pct': self.safe_space_frames / max(self.step_count, 1),
-            **reward_breakdown
+            **self._reward_totals
         }
         self.prev_mass = self.player.mass
         return obs, reward, terminated, truncated, info
@@ -483,6 +514,8 @@ class SlitherEnv(gymnasium.Env):
         reward_breakdown = {
             'time_penalty': 0.0,
             'food_reward': 0.0,
+            'food_reward_small': 0.0,
+            'food_reward_big': 0.0,
             'boost_penalty': 0.0,
             'kill_reward': 0.0,
             'proximity_reward': 0.0,
@@ -502,12 +535,24 @@ class SlitherEnv(gymnasium.Env):
         # Eating vs boosting: stronger food pull, boost still costs mass.
         if mass_diff > 0:
             food_rew = mass_diff / FOOD_REWARD_DIVISOR
+            total_food_gain = self.player_food_mass_small_step + self.player_food_mass_big_step
+            if total_food_gain > 0:
+                small_food_rew = food_rew * (self.player_food_mass_small_step / total_food_gain)
+                big_food_rew = food_rew - small_food_rew
+            else:
+                small_food_rew = food_rew
+                big_food_rew = 0.0
+
             if self.loot_bonus_timer > 0:
                 bonus_delta = food_rew * (LOOT_BONUS_MULTIPLIER - 1.0)
                 food_rew *= LOOT_BONUS_MULTIPLIER
+                small_food_rew *= LOOT_BONUS_MULTIPLIER
+                big_food_rew *= LOOT_BONUS_MULTIPLIER
                 reward_breakdown['loot_bonus_reward'] = bonus_delta
             reward += food_rew
             reward_breakdown['food_reward'] = food_rew
+            reward_breakdown['food_reward_small'] = small_food_rew
+            reward_breakdown['food_reward_big'] = big_food_rew
         else:
             boost_pen = mass_diff / 20.0  # Increased cost from / 100.0
             reward += boost_pen

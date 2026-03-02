@@ -117,6 +117,8 @@ class SelfPlayCallback(BaseCallback):
         # Reward breakdown tracking
         self.ep_time_penalty = []
         self.ep_food_reward = []
+        self.ep_food_reward_small = []
+        self.ep_food_reward_big = []
         self.ep_boost_penalty = []
         self.ep_kill_reward = []
         self.ep_proximity_reward = []
@@ -162,6 +164,8 @@ class SelfPlayCallback(BaseCallback):
             # Store reward breakdown
             self.ep_time_penalty.append(info.get('time_penalty', 0))
             self.ep_food_reward.append(info.get('food_reward', 0))
+            self.ep_food_reward_small.append(info.get('food_reward_small', 0))
+            self.ep_food_reward_big.append(info.get('food_reward_big', 0))
             self.ep_boost_penalty.append(info.get('boost_penalty', 0))
             self.ep_kill_reward.append(info.get('kill_reward', 0))
             self.ep_proximity_reward.append(info.get('proximity_reward', 0))
@@ -184,9 +188,34 @@ class SelfPlayCallback(BaseCallback):
                 self.logger.record("slither/kills_total", np.sum(self.ep_kills[-n:]))
                 self.logger.record("slither/food_eaten_mean", np.mean(self.ep_food_eaten[-n:]))
                 self.logger.record("slither/boost_pct", np.mean(self.ep_boost_pct[-n:]))
+                self.logger.record("slither/reward_food_small", np.mean(self.ep_food_reward_small[-n:]))
+                self.logger.record("slither/reward_food_big", np.mean(self.ep_food_reward_big[-n:]))
+                self.logger.record("slither/reward_kill", np.mean(self.ep_kill_reward[-n:]))
+                self.logger.record("slither/reward_proximity", np.mean(self.ep_proximity_reward[-n:]))
+                self.logger.record("slither/reward_boost_penalty", np.mean(self.ep_boost_penalty[-n:]))
+                self.logger.record("slither/reward_time_penalty", np.mean(self.ep_time_penalty[-n:]))
                 self.logger.record("slither/loot_bonus_reward", np.mean(self.ep_loot_bonus_reward[-n:]))
                 self.logger.record("slither/wall_close_pct", np.mean(self.ep_wall_close_pct[-n:]))
                 self.logger.record("slither/safe_space_pct", np.mean(self.ep_safe_space[-n:]))
+
+                pos_food_small = np.sum(np.maximum(self.ep_food_reward_small[-n:], 0.0))
+                pos_food_big = np.sum(np.maximum(self.ep_food_reward_big[-n:], 0.0))
+                pos_kill = np.sum(np.maximum(self.ep_kill_reward[-n:], 0.0))
+                pos_prox = np.sum(np.maximum(self.ep_proximity_reward[-n:], 0.0))
+                pos_total = pos_food_small + pos_food_big + pos_kill + pos_prox
+                if pos_total > 1e-8:
+                    self.logger.record("slither/reward_pos_food_small_pct", pos_food_small / pos_total)
+                    self.logger.record("slither/reward_pos_food_big_pct", pos_food_big / pos_total)
+                    self.logger.record("slither/reward_pos_kill_pct", pos_kill / pos_total)
+                    self.logger.record("slither/reward_pos_proximity_pct", pos_prox / pos_total)
+
+                neg_time = -np.sum(np.minimum(self.ep_time_penalty[-n:], 0.0))
+                neg_boost = -np.sum(np.minimum(self.ep_boost_penalty[-n:], 0.0))
+                neg_total = neg_time + neg_boost
+                if neg_total > 1e-8:
+                    self.logger.record("slither/reward_neg_time_pct", neg_time / neg_total)
+                    self.logger.record("slither/reward_neg_boost_pct", neg_boost / neg_total)
+
                 if self.ep_time_to_100:
                     n_time = min(100, len(self.ep_time_to_100))
                     self.logger.record("slither/time_to_100_mass", np.mean(self.ep_time_to_100[-n_time:]))
@@ -222,6 +251,8 @@ class SelfPlayCallback(BaseCallback):
                 
                 # Reward breakdown print
                 avg_food = np.mean(self.ep_food_reward[-n:])
+                avg_food_small = np.mean(self.ep_food_reward_small[-n:])
+                avg_food_big = np.mean(self.ep_food_reward_big[-n:])
                 avg_kill = np.mean(self.ep_kill_reward[-n:])
                 avg_prox = np.mean(self.ep_proximity_reward[-n:])
                 avg_loot = np.mean(self.ep_loot_bonus_reward[-n:])
@@ -230,6 +261,31 @@ class SelfPlayCallback(BaseCallback):
                 
                 print(f"   Reward breakdown: Food: {avg_food:+.2f} | Loot: {avg_loot:+.2f} | Kills: {avg_kill:+.2f} | Prox: {avg_prox:+.2f}")
                 print(f"   Penalty breakdown: Death/Time: {avg_time_pen:+.2f} | Boost: {avg_boost_pen:+.2f}")
+
+                pos_food_small = np.sum(np.maximum(self.ep_food_reward_small[-n:], 0.0))
+                pos_food_big = np.sum(np.maximum(self.ep_food_reward_big[-n:], 0.0))
+                pos_kill = np.sum(np.maximum(self.ep_kill_reward[-n:], 0.0))
+                pos_prox = np.sum(np.maximum(self.ep_proximity_reward[-n:], 0.0))
+                pos_total = pos_food_small + pos_food_big + pos_kill + pos_prox
+                if pos_total > 1e-8:
+                    print("   +Reward mix: "
+                          f"FoodSmall={100 * pos_food_small / pos_total:.1f}% | "
+                          f"FoodBig={100 * pos_food_big / pos_total:.1f}% | "
+                          f"Kill={100 * pos_kill / pos_total:.1f}% | "
+                          f"Prox={100 * pos_prox / pos_total:.1f}%")
+                else:
+                    print("   +Reward mix: no positive rewards in window")
+
+                neg_time = -np.sum(np.minimum(self.ep_time_penalty[-n:], 0.0))
+                neg_boost = -np.sum(np.minimum(self.ep_boost_penalty[-n:], 0.0))
+                neg_total = neg_time + neg_boost
+                if neg_total > 1e-8:
+                    print("   -Reward mix: "
+                          f"Time/Death={100 * neg_time / neg_total:.1f}% | "
+                          f"Boost={100 * neg_boost / neg_total:.1f}%")
+                else:
+                    print("   -Reward mix: no negative rewards in window")
+                print(f"   Food split avg: small={avg_food_small:+.2f} | big={avg_food_big:+.2f}")
 
                 avg_time_100 = np.mean(self.ep_time_to_100[-100:]) if self.ep_time_to_100 else 0
                 print(f"   Metrics: Safe Space: {np.mean(self.ep_safe_space[-n:])*100:.1f}% | Time to 100 Mass: {avg_time_100:.0f} steps")
@@ -371,6 +427,12 @@ def main():
                        help='Record an eval episode every N timesteps (0=disabled)')
     parser.add_argument('--save-videos-local', action='store_true',
                        help='Also save eval videos to logs/eval_videos for debugging')
+    parser.add_argument('--learning-rate', type=float, default=1e-4,
+                       help='Optimizer learning rate (default: 1e-4)')
+    parser.add_argument('--vf-coef', type=float, default=0.5,
+                       help='Value function loss coefficient (default: 0.5)')
+    parser.add_argument('--ent-coef', type=float, default=0.01,
+                       help='Entropy bonus coefficient (default: 0.01)')
     parser.add_argument('--no-lstm', action='store_true',
                        help='Use standard PPO instead of RecurrentPPO (LSTM)')
     args = parser.parse_args()
@@ -412,8 +474,10 @@ def main():
     arch_name = "RecurrentPPO (LSTM)" if use_lstm else "PPO (Feedforward)"
 
     custom_objects = {
-        "learning_rate": 1e-4,
+        "learning_rate": args.learning_rate,
         "clip_range": 0.2,
+        "ent_coef": args.ent_coef,
+        "vf_coef": args.vf_coef,
     }
 
     model = None
@@ -474,15 +538,15 @@ def main():
             model = RecurrentPPO(
                 policy_name, env,
                 policy_kwargs=policy_kwargs,
-                learning_rate=1e-4,
+                learning_rate=args.learning_rate,
                 n_steps=2048,
                 batch_size=1024,
                 n_epochs=10,
                 gamma=0.99,
                 gae_lambda=0.95,
                 clip_range=0.2,
-                ent_coef=0.01,
-                vf_coef=0.5,
+                ent_coef=args.ent_coef,
+                vf_coef=args.vf_coef,
                 max_grad_norm=0.5,
                 verbose=1,
                 tensorboard_log=LOG_DIR,
@@ -492,7 +556,7 @@ def main():
             model = PPO(
                 policy_name, env,
                 policy_kwargs=policy_kwargs,
-                learning_rate=1e-4,
+                learning_rate=args.learning_rate,
                 target_kl=0.015,
                 n_steps=8192,
                 batch_size=1024,
@@ -500,14 +564,20 @@ def main():
                 gamma=0.99,
                 gae_lambda=0.95,
                 clip_range=0.2,
-                ent_coef=0.01,
-                vf_coef=0.5,
+                ent_coef=args.ent_coef,
+                vf_coef=args.vf_coef,
                 max_grad_norm=0.5,
                 verbose=1,
                 tensorboard_log=LOG_DIR,
                 device=device,
             )
         print(f"🆕 Created fresh {arch_name} model")
+    else:
+        # Allow hyperparameter retuning on resume runs.
+        model.ent_coef = args.ent_coef
+        model.vf_coef = args.vf_coef
+        model.learning_rate = args.learning_rate
+        model.lr_schedule = lambda _: args.learning_rate
 
     total_params = sum(p.numel() for p in model.policy.parameters())
     print(f"🧠 Model parameters: {total_params:,}")
@@ -517,6 +587,7 @@ def main():
     print(f"🎮 Environment: {env.num_envs}x (1 agent + {num_scripted} scripted + {num_selfplay} self-play = {1 + num_scripted + num_selfplay} snakes)")
     print(f"📺 Render: {'ON' if args.render else 'OFF'}")
     print(f"📈 Stage {args.stage} Curriculum Active")
+    print(f"⚙️  Hyperparams: lr={args.learning_rate:g}, vf_coef={args.vf_coef:g}, ent_coef={args.ent_coef:g}")
     print(f"🎯 Training for {args.timesteps:,} timesteps\n")
 
     callback = SelfPlayCallback(ckpt_mgr, env, save_every=SAVE_EVERY_EPISODES,
