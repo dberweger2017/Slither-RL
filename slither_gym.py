@@ -22,6 +22,11 @@ MASS_PER_FOOD = 5
 FOOD_FRICTION = 0.92
 
 
+def _angle_diff(a, b):
+    """Signed shortest difference between angles a and b."""
+    return (a - b + math.pi) % (2 * math.pi) - math.pi
+
+
 class FoodItem:
     __slots__ = ('x', 'y', 'vx', 'vy', 'value', 'radius', 'color')
 
@@ -205,11 +210,51 @@ class SlitherEnv(gymnasium.Env):
         theta = random.uniform(0, 2 * math.pi)
         return r * math.cos(theta), r * math.sin(theta)
 
+    def _turn_rate(self, snake):
+        return max(0.04, BASE_TURN_RATE / (1 + math.log10(
+            snake.mass / START_MASS) * 0.3))
+
+    def _rebuild_spatial_grids(self):
+        self.food_grid.clear()
+        for food in self.foods:
+            self.food_grid.insert(food, food.x, food.y)
+        self.segment_grid.clear()
+        for snake in self.snakes:
+            if snake.dead:
+                continue
+            for seg in snake.segments[3:]:
+                self.segment_grid.insert((snake, seg), seg[0], seg[1])
+
+    def expert_action_for_player(self, bot_type='interceptor'):
+        """
+        Compute (steering, boost) action for the current player using a scripted bot.
+
+        Useful for behavior-cloning dataset collection. The action is mapped to this
+        env's continuous action space (steering in [-1, 1], boost in [0, 1]).
+        """
+        if self.player is None:
+            raise RuntimeError("Call reset() before expert_action_for_player().")
+        if self.player.dead:
+            return np.array([0.0, 0.0], dtype=np.float32)
+
+        self._rebuild_spatial_grids()
+
+        original_bot = self.player.bot_type
+        if bot_type is not None:
+            self.player.bot_type = bot_type
+        bot_ai.update(self.player, self.foods, self.snakes, self.world_radius, self.segment_grid)
+        self.player.bot_type = original_bot
+
+        turn_rate = self._turn_rate(self.player)
+        steering = np.clip(_angle_diff(self.player.target_angle, self.player.angle) /
+                           max(turn_rate, 1e-6), -1.0, 1.0)
+        boost = 1.0 if self.player.is_boosting else 0.0
+        return np.array([steering, boost], dtype=np.float32)
+
     def _make_obs_for(self, snake):
         mini_map = obs_module.generate_observation(
             snake, self.snakes, self.foods, self.food_grid, self.world_radius)
-        turn_rate = max(0.04, BASE_TURN_RATE / (1 + math.log10(
-            snake.mass / START_MASS) * 0.3))
+        turn_rate = self._turn_rate(snake)
         dist_to_wall = self.world_radius - math.hypot(snake.head[0], snake.head[1])
         state = np.array([
             min(1.0, snake.mass / 5000.0),
@@ -226,8 +271,7 @@ class SlitherEnv(gymnasium.Env):
     def _apply_action(self, snake, action):
         steering = float(np.clip(action[0], -1, 1))
         boost = float(action[1]) > 0.5
-        turn_rate = max(0.04, BASE_TURN_RATE / (1 + math.log10(
-            snake.mass / START_MASS) * 0.3))
+        turn_rate = self._turn_rate(snake)
         snake.target_angle = snake.angle + steering * turn_rate
         snake.is_boosting = boost and snake.mass > (START_MASS + 10)
 
@@ -271,6 +315,7 @@ class SlitherEnv(gymnasium.Env):
             self.foods.append(FoodItem(fx, fy))
 
         self.prev_mass = self.player.mass
+        self._rebuild_spatial_grids()
         return self._make_obs_for(self.player), {}
 
     def step(self, action):
@@ -290,15 +335,7 @@ class SlitherEnv(gymnasium.Env):
         for food in self.foods:
             food.update()
 
-        self.food_grid.clear()
-        for food in self.foods:
-            self.food_grid.insert(food, food.x, food.y)
-        self.segment_grid.clear()
-        for snake in self.snakes:
-            if snake.dead:
-                continue
-            for seg in snake.segments[3:]:
-                self.segment_grid.insert((snake, seg), seg[0], seg[1])
+        self._rebuild_spatial_grids()
 
         # Self-play agents — skip obs generation when no policies loaded
         for idx in self._selfplay_indices:

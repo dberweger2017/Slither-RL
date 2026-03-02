@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "bot_type": "interceptor",
+  "total_frames": 5000,
+  "chunk_size": 512,
+  "map_shape": [
+    5,
+    168,
+    168
+  ],
+  "state_shape": [
+    8
+  ],
+  "action_shape": [
+    2
+  ],
+  "map_dtype": "uint8",
+  "num_scripted": 10,
+  "world_radius": 2000,
+  "food_count": 500,
+  "max_steps": 3000,
+  "seed": 0,
+  "chunks": [
+    {
+      "file": "chunk_00000.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00001.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00002.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00003.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00004.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00005.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00006.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00007.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00008.npz",
+      "frames": 512
+    },
+    {
+      "file": "chunk_00009.npz",
+      "frames": 392
+    }
+  ],
+  "num_chunks": 10,
+  "episodes": 4
+}
