@@ -260,13 +260,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rl", type=int, default=6, help="Number of RL agents")
     parser.add_argument("--bots", type=int, default=9, help="Number of scripted bots")
+    parser.add_argument("--bot-type", type=str, default=None, help="Force a specific bot personality (e.g. scavenger)")
+    parser.add_argument("--simulate", action="store_true", help="Run 60s headless simulation with 2 bots of each type to find the winner")
     parser.add_argument("--debug-vision", action="store_true", help="View agent observation channels fullscreen")
     args = parser.parse_args()
 
-    pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Slither.io — Play vs Trained RL Agents")
-    clock = pygame.time.Clock()
+    if not args.simulate:
+        pygame.init()
+        screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption("Slither.io — Play vs Trained RL Agents")
+        clock = pygame.time.Clock()
 
     WORLD_RADIUS = 2000
     FOOD_COUNT = 500
@@ -286,15 +289,25 @@ def main():
     # Spawn player
     px, py = random_point_in_circle(WORLD_RADIUS)
     player = Snake(px, py, is_player=True)
+    if args.simulate:
+        player.dead = True
     snakes = [player]
 
     # Scripted bots
-    for i in range(args.bots):
-        btype = bot_ai.BOT_TYPES[i % len(bot_ai.BOT_TYPES)]
-        bx, by = random_point_in_circle(WORLD_RADIUS)
-        s = Snake(bx, by, bot_type=btype)
-        s.role = 'scripted'
-        snakes.append(s)
+    if args.simulate:
+        for bt in bot_ai.BOT_TYPES:
+            for _ in range(2):
+                bx, by = random_point_in_circle(WORLD_RADIUS)
+                s = Snake(bx, by, bot_type=bt)
+                s.role = 'scripted'
+                snakes.append(s)
+    else:
+        for i in range(args.bots):
+            bot_type = args.bot_type if args.bot_type else bot_ai.BOT_TYPES[i % len(bot_ai.BOT_TYPES)]
+            bx, by = random_point_in_circle(WORLD_RADIUS)
+            s = Snake(bx, by, bot_type=bot_type)
+            s.role = 'scripted'
+            snakes.append(s)
 
     # RL-controlled agents
     rl_indices = []
@@ -320,29 +333,43 @@ def main():
 
     vision_mode = 0  # 0: normal, 1-5: specific CNN channels
 
+    step = 0
     running = True
+    bot_peaks = {bt: 0 for bt in bot_ai.BOT_TYPES}
+    bot_kills = {bt: 0 for bt in bot_ai.BOT_TYPES}
+
+    if args.simulate:
+        print("Starting headless simulation for 3600 frames (60 seconds)...")
+
     while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+        if args.simulate and step >= 3600:
+            running = False
+            continue
+            
+        step += 1
+        
+        if not args.simulate:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
                     running = False
-                elif event.key == pygame.K_1:
-                    vision_mode = 0
-                elif event.key == pygame.K_2:
-                    vision_mode = 1
-                elif event.key == pygame.K_3:
-                    vision_mode = 2
-                elif event.key == pygame.K_4:
-                    vision_mode = 3
-                elif event.key == pygame.K_5:
-                    vision_mode = 4
-                elif event.key == pygame.K_6:
-                    vision_mode = 5
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                    elif event.key == pygame.K_1:
+                        vision_mode = 0
+                    elif event.key == pygame.K_2:
+                        vision_mode = 1
+                    elif event.key == pygame.K_3:
+                        vision_mode = 2
+                    elif event.key == pygame.K_4:
+                        vision_mode = 3
+                    elif event.key == pygame.K_5:
+                        vision_mode = 4
+                    elif event.key == pygame.K_6:
+                        vision_mode = 5
 
         # Player input
-        if not player.dead:
+        if not args.simulate and not player.dead:
             mx, my = pygame.mouse.get_pos()
             current_zoom = BASE_ZOOM / (1 + (player.mass - START_MASS) * 0.0003)
             current_zoom = max(0.25, min(BASE_ZOOM, current_zoom))
@@ -443,9 +470,11 @@ def main():
                 if dist < owner.radius * 0.8:
                     sa.dead = True
                     owner.kills += 1
-                    if sa.is_player:
+                    if owner.role == 'scripted':
+                        bot_kills[owner.bot_type] += 1
+                    if sa.is_player and not args.simulate:
                         print(f"Killed by a {sa.role}! Mass: {int(sa.mass)}")
-                    if owner.is_player:
+                    if owner.is_player and not args.simulate:
                         print(f"You killed a {sa.role}! (Kill #{owner.kills})")
                     cx = sum(s[0] for s in sa.segments) / len(sa.segments)
                     cy = sum(s[1] for s in sa.segments) / len(sa.segments)
@@ -481,17 +510,30 @@ def main():
         for i, snake in enumerate(snakes):
             if snake.dead and not snake.is_player:
                 bx, by = random_point_in_circle(WORLD_RADIUS)
+                # Keep same role and bot_type
+                btype = snake.bot_type
                 role = snake.role
-                new_snake = Snake(bx, by)
+                models_idx = getattr(snake, '_rl_idx', None) # Use getattr for safety
+
+                new_snake = Snake(bx, by, bot_type=btype)
                 new_snake.role = role
+                if models_idx is not None:
+                    new_snake._rl_idx = models_idx
                 if role == 'rl':
                     new_snake.color = (255, 215, 0)
                 snakes[i] = new_snake
 
-        if player.dead:
+        if player.dead and not args.simulate:
             px, py = random_point_in_circle(WORLD_RADIUS)
             player = Snake(px, py, is_player=True)
             snakes[0] = player
+
+        # Track stats
+        if args.simulate:
+            for snake in snakes:
+                if not snake.dead and snake.role == 'scripted':
+                    if snake.mass > bot_peaks[snake.bot_type]:
+                        bot_peaks[snake.bot_type] = snake.mass
 
         # --- DRAW ---
         screen.fill(BG_COLOR)
@@ -598,7 +640,22 @@ def main():
         pygame.display.flip()
         clock.tick(FPS)
 
-    pygame.quit()
+    if not args.simulate:
+        pygame.quit()
+    else:
+        print("\n--- SIMULATION RESULTS (60 SECONDS) ---")
+        scores = []
+        for bt in bot_ai.BOT_TYPES:
+            scores.append((bt, bot_peaks[bt], bot_kills[bt]))
+        scores.sort(key=lambda x: x[1], reverse=True) # sort by peak mass
+
+        print(f"{'BOT TYPE':15} | {'PEAK MASS':<10} | {'TOTAL KILLS'}")
+        print("-" * 45)
+        for bt, mass, kills in scores:
+            print(f"{bt:15} | {int(mass):<10} | {kills}")
+        print("-" * 45)
+        winner = scores[0][0]
+        print(f"WINNER (Highest Peak Mass): {winner.upper()}!")
 
 
 if __name__ == "__main__":

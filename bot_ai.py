@@ -396,8 +396,13 @@ def ai_scavenger(snake, foods, snakes, world_size, segment_grid=None):
     if food:
         snake.target_angle = math.atan2(food.y - snake.head[1], food.x - snake.head[0])
     else:
-        snake.target_angle = math.atan2(-snake.head[1], -snake.head[0])
-        snake.target_angle += random.uniform(-0.3, 0.3)
+        # Wander to prevent small tight loops
+        snake._wander_timer -= 1
+        if snake._wander_timer <= 0:
+            snake.target_angle = random.uniform(0, 2 * math.pi)
+            snake._wander_timer = random.randint(30, 90)
+            
+        snake.target_angle = _blend_angle(snake.target_angle, math.atan2(-snake.head[1], -snake.head[0]), 0.05)
     snake.is_boosting = False
 
 
