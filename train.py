@@ -86,7 +86,8 @@ class CheckpointManager:
 
 class SelfPlayCallback(BaseCallback):
     def __init__(self, checkpoint_manager, env, save_every=SAVE_EVERY_EPISODES,
-                 record_every=100000, stage=3, use_lstm=True, verbose=1):
+                 record_every=100000, stage=3, use_lstm=True,
+                 save_videos_local=False, verbose=1):
         super().__init__(verbose)
         self.ckpt_mgr = checkpoint_manager
         self.env = env
@@ -94,6 +95,7 @@ class SelfPlayCallback(BaseCallback):
         self.record_every = record_every
         self.stage = stage
         self.use_lstm = use_lstm
+        self.save_videos_local = save_videos_local
         self.episode_count = 0
         self.last_save_episode = 0
         self.last_record_episode = 0
@@ -124,6 +126,10 @@ class SelfPlayCallback(BaseCallback):
         self.env.env_method('load_selfplay_from_dir', CHECKPOINT_DIR, 6)
         if self.record_every > 0:
             print(f"🎥 Video recording enabled: every {self.record_every:,} timesteps")
+            if self.save_videos_local:
+                print("💽 Local eval video saving: ON (logs/eval_videos/)")
+            else:
+                print("💽 Local eval video saving: OFF")
         else:
             print("🎥 Video recording disabled (--record-every 0)")
 
@@ -297,6 +303,9 @@ class SelfPlayCallback(BaseCallback):
             video_tensor = torch.from_numpy(
                 np.stack(frames)).permute(0, 3, 1, 2).unsqueeze(0)
 
+            if self.save_videos_local:
+                self._save_eval_video_local(frames)
+
             writer = None
             if hasattr(self.logger, 'output_formats'):
                 from stable_baselines3.common.logger import TensorBoardOutputFormat
@@ -308,7 +317,7 @@ class SelfPlayCallback(BaseCallback):
             if writer is not None:
                 writer.add_video(
                     'slither/gameplay', video_tensor,
-                    global_step=self.episode_count, fps=20)
+                    global_step=self.num_timesteps, fps=20)
                 writer.flush()
                 print(f"  🎬 Recorded eval episode: {len(frames)} frames, "
                       f"mass={info.get('mass', 0):.0f}, "
@@ -319,6 +328,30 @@ class SelfPlayCallback(BaseCallback):
 
         except Exception as e:
             print(f"  ⚠️  Video recording failed: {e!r}")
+
+    def _save_eval_video_local(self, frames):
+        """Optional disk save for debugging when TensorBoard media doesn't show."""
+        out_dir = os.path.join(LOG_DIR, "eval_videos")
+        os.makedirs(out_dir, exist_ok=True)
+        stem = f"eval_t{self.num_timesteps:09d}_ep{self.episode_count:07d}"
+        mp4_path = os.path.join(out_dir, f"{stem}.mp4")
+        try:
+            import imageio.v2 as imageio
+            with imageio.get_writer(mp4_path, fps=20) as writer:
+                for frame in frames:
+                    writer.append_data(frame)
+            print(f"  💽 Saved eval video file: {mp4_path}")
+            return
+        except Exception as e:
+            print(f"  ⚠️  Could not save mp4 video: {e!r}")
+
+        gif_path = os.path.join(out_dir, f"{stem}.gif")
+        try:
+            import imageio.v2 as imageio
+            imageio.mimsave(gif_path, frames, format='GIF', fps=20)
+            print(f"  💽 Saved eval gif file: {gif_path}")
+        except Exception as e:
+            print(f"  ⚠️  Could not save gif video: {e!r}")
 
 
 def main():
@@ -332,6 +365,8 @@ def main():
                        help='Training stage (1: food only, 2: bots, 3: full self-play)')
     parser.add_argument('--record-every', type=int, default=100000,
                        help='Record an eval episode every N timesteps (0=disabled)')
+    parser.add_argument('--save-videos-local', action='store_true',
+                       help='Also save eval videos to logs/eval_videos for debugging')
     parser.add_argument('--no-lstm', action='store_true',
                        help='Use standard PPO instead of RecurrentPPO (LSTM)')
     args = parser.parse_args()
@@ -482,7 +517,8 @@ def main():
 
     callback = SelfPlayCallback(ckpt_mgr, env, save_every=SAVE_EVERY_EPISODES,
                                 record_every=args.record_every, stage=args.stage,
-                                use_lstm=use_lstm)
+                                use_lstm=use_lstm,
+                                save_videos_local=args.save_videos_local)
 
     try:
         model.learn(total_timesteps=args.timesteps, callback=callback,
