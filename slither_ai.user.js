@@ -20,7 +20,7 @@
     let aiEnabled = false;
 
     // AI Configuration Parameters (matched to Python env)
-    const MAP_SIZE = 84;
+    const MAP_SIZE = 168;
     const VIEW_RADIUS = 500.0;
     const PIXELS_PER_UNIT = MAP_SIZE / (2 * VIEW_RADIUS);
     const CENTER = MAP_SIZE / 2;
@@ -42,7 +42,7 @@
         }
     }
 
-    // Creates the 5x84x84 float32 observation map
+    // Creates the 5x168x168 float32 observation map
     function generateMiniMap(player) {
         const obs = new Float32Array(5 * MAP_SIZE * MAP_SIZE);
         const hx = player.xx;
@@ -218,7 +218,7 @@
         const stateData = generateProprioception(player);
 
         // 2. Tensors
-        const mapTensor = new ort.Tensor('float32', mapData, [1, 5, 84, 84]);
+        const mapTensor = new ort.Tensor('float32', mapData, [1, 5, 168, 168]);
         const stateTensor = new ort.Tensor('float32', stateData, [1, 8]);
 
         // 3. Inference

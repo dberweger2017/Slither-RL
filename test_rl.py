@@ -204,6 +204,8 @@ def load_rl_opponents(n=6):
     weights /= weights.sum()
 
     # Bypass version mismatch json/pickle unpickling errors
+    # Note: If the checkpoint was trained on 84x84, it will crash when it
+    # receives a 168x168 observation. This can't be fixed by custom_objects alone.
     custom_objects = {
         "learning_rate": 5e-5,
         "clip_range": 0.2,
