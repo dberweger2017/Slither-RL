@@ -7,5 +7,8 @@ sb3-contrib
 torch
 tensorboard
 tqdm
-moviepy
+moviepy<2
+imageio
+imageio-ffmpeg
+requests
 onnx
