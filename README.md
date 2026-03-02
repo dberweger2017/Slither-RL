@@ -13,7 +13,7 @@ If the embedded player does not render in your GitHub view, open the video direc
 ## 1. Features 🌟
 
 - **Recurrent PPO (LSTM):** Core architecture uses an LSTM hidden state (2048-step BPTT) to learn multi-step hunting strategies, coiling, and momentum.
-- **Gladiator Reward Tuning:** Aggressive reward function that heavily incentivizes kills (5x food value) and makes boosting nearly free to encourage hunting, while remaining neutral on survival time to prevent passive foraging.
+- **Reward Shaping with Loot Bonus:** Reward balances food growth, boost mass cost, kill reward, and a temporary post-kill food multiplier to encourage collecting spoils after fights.
 - **High-Resolution Vision:** 168×168 ego-centric 5-channel CNN observation map with `VIEW_RADIUS=500`, ensuring even single food pellets are visible to the agent (≥1px per orb).
 - **4-Layer CNN Extractor:** Conv2d pipeline (32→64→128 channels) with stride-2 downsampling, purpose-built for the 168×168 input resolution.
 - **Smart Scripted Bots:** 9 distinct algorithmic bot personalities (Bullies, Hunters, Foragers, Interceptors, Scavengers, etc.) that use spatial hashing to dodge bodies and fight intelligently.
@@ -21,6 +21,7 @@ If the embedded player does not render in your GitHub view, open the video direc
 - **Headless Bot Tournament:** `--simulate` flag runs a 60-second fast-forward match with 2 of each bot type and prints a ranked leaderboard.
 - **Debug Training HUD:** Live PyGame overlay showing observation channel previews, steering magnitude, boost status, and episode stats.
 - **Automatic Video Recording:** Periodically records a deterministic evaluation episode and pushes the video directly to TensorBoard.
+- **Optional Local Video Dumps:** `--save-videos-local` writes eval videos to `logs/eval_videos/` for headless server debugging.
 
 ---
 
@@ -28,7 +29,7 @@ If the embedded player does not render in your GitHub view, open the video direc
 
 ### Requirements
 ```bash
-pip install stable-baselines3[extra] sb3-contrib gymnasium pygame numpy torch moviepy tensorboard tqdm rich
+pip install -r requirements.txt
 ```
 
 ### Basic Training (LSTM)
@@ -45,14 +46,15 @@ python3 train.py
 | `--num-envs <N>` | `4` | Parallel environment subprocesses |
 | `--render` | off | Opens a live Pygame training HUD window (single env) |
 | `--record-every <N>`| `100,000` | Record an eval episode to TensorBoard every N timesteps (0=disabled) |
+| `--save-videos-local` | off | Also save eval videos to `logs/eval_videos/` |
 | `--no-lstm` | off | Fallback to standard feedforward PPO instead of RecurrentPPO |
 
 ### Curriculum Learning Stages
 | Stage | Command | Arena | Goal |
 |---|---|---|---|
 | **1** | `python3 train.py --stage 1` | Agent + Food only | Learn movement, eating, wall avoidance |
-| **2** | `python3 train.py --stage 2` | Agent + 20 scripted bots | Learn combat, maneuvering, hunting |
-| **3** | `python3 train.py --stage 3` | Agent + 20 bots + 6 self-play clones | Develop robust, generalized strategies |
+| **2** | `python3 train.py --stage 2` | Agent + 10 scripted bots | Learn combat, maneuvering, hunting |
+| **3** | `python3 train.py --stage 3` | Agent + 10 scripted bots + 6 self-play clones | Develop robust, generalized strategies |
 
 ### Resuming Training
 ```bash
@@ -95,7 +97,7 @@ Notes:
 ```bash
 tensorboard --logdir logs/
 ```
-- **Custom Metrics (`slither/`):** `reward_mean`, `episode_length`, `peak_mass_mean`, `kills_mean`, `food_eaten_mean`, `death_wall_pct`, `death_collision_pct`, `survival_rate`, `boost_pct`, `wall_close_pct`.
+- **Custom Metrics (`slither/`):** `reward_mean`, `episode_length`, `peak_mass_mean`, `kills_mean`, `food_eaten_mean`, `mass_per_frame`, `death_wall_pct`, `death_collision_pct`, `survival_rate`, `boost_pct`, `loot_bonus_reward`.
 - **Gameplay Videos:** Check the **Images** tab in TensorBoard to watch the periodic `--record-every` eval episodes.
 
 ---
