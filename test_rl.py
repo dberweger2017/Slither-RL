@@ -536,109 +536,110 @@ def main():
                         bot_peaks[snake.bot_type] = snake.mass
 
         # --- DRAW ---
-        screen.fill(BG_COLOR)
-        
-        if vision_mode == 0:
-            current_zoom = BASE_ZOOM / (1 + (player.mass - START_MASS) * 0.0003)
-            current_zoom = max(0.25, min(BASE_ZOOM, current_zoom))
-            camera_x = player.head[0] - (WIDTH / 2) / current_zoom
-            camera_y = player.head[1] - (HEIGHT / 2) / current_zoom
+        if not args.simulate:
+            screen.fill(BG_COLOR)
 
-            grid_size = 50
-            start_x = int((-camera_x % grid_size) * current_zoom)
-            start_y = int((-camera_y % grid_size) * current_zoom)
-            scaled_grid = int(grid_size * current_zoom)
-            if scaled_grid > 0:
-                for x in range(start_x, WIDTH, scaled_grid):
-                    pygame.draw.line(screen, GRID_COLOR, (x, 0), (x, HEIGHT))
-                for y in range(start_y, HEIGHT, scaled_grid):
-                    pygame.draw.line(screen, GRID_COLOR, (0, y), (WIDTH, y))
+            if vision_mode == 0:
+                current_zoom = BASE_ZOOM / (1 + (player.mass - START_MASS) * 0.0003)
+                current_zoom = max(0.25, min(BASE_ZOOM, current_zoom))
+                camera_x = player.head[0] - (WIDTH / 2) / current_zoom
+                camera_y = player.head[1] - (HEIGHT / 2) / current_zoom
 
-            cx_screen = int(-camera_x * current_zoom)
-            cy_screen = int(-camera_y * current_zoom)
-            cr_screen = int(WORLD_RADIUS * current_zoom)
-            pygame.draw.circle(screen, (200, 50, 50), (cx_screen, cy_screen), cr_screen, 3)
+                grid_size = 50
+                start_x = int((-camera_x % grid_size) * current_zoom)
+                start_y = int((-camera_y % grid_size) * current_zoom)
+                scaled_grid = int(grid_size * current_zoom)
+                if scaled_grid > 0:
+                    for x in range(start_x, WIDTH, scaled_grid):
+                        pygame.draw.line(screen, GRID_COLOR, (x, 0), (x, HEIGHT))
+                    for y in range(start_y, HEIGHT, scaled_grid):
+                        pygame.draw.line(screen, GRID_COLOR, (0, y), (WIDTH, y))
 
-            for food in foods:
-                fx = int((food.x - camera_x) * current_zoom)
-                fy = int((food.y - camera_y) * current_zoom)
-                fr = max(1, int(food.radius * current_zoom))
-                pygame.draw.circle(screen, food.color, (fx, fy), fr)
+                cx_screen = int(-camera_x * current_zoom)
+                cy_screen = int(-camera_y * current_zoom)
+                cr_screen = int(WORLD_RADIUS * current_zoom)
+                pygame.draw.circle(screen, (200, 50, 50), (cx_screen, cy_screen), cr_screen, 3)
 
-            for snake in snakes:
-                snake.draw(screen, camera_x, camera_y, current_zoom)
+                for food in foods:
+                    fx = int((food.x - camera_x) * current_zoom)
+                    fy = int((food.y - camera_y) * current_zoom)
+                    fr = max(1, int(food.radius * current_zoom))
+                    pygame.draw.circle(screen, food.color, (fx, fy), fr)
 
-            # CNN observation debug overlay
-            if not player.dead:
-                obs = obs_module.generate_observation(player, snakes, foods, food_grid, WORLD_RADIUS)
-                previews = obs_module.obs_to_surfaces(obs, preview_size=100)
-                preview_x = WIDTH - 110
-                preview_y = 5
-                small_font = pygame.font.SysFont(None, 16)
-                for surf, label in previews:
-                    pygame.draw.rect(screen, (0, 0, 0), (preview_x - 2, preview_y - 2, 104, 118))
-                    screen.blit(surf, (preview_x, preview_y))
-                    label_surf = small_font.render(label, True, (200, 200, 200))
-                    screen.blit(label_surf, (preview_x + 2, preview_y + 102))
-                    preview_y += 120
-        else:
-            if not player.dead:
-                # Clear screen completely for debug vision map
-                screen.fill((0, 0, 0))
-                
-                obs = obs_module.generate_observation(player, snakes, foods, food_grid, WORLD_RADIUS)
-                # Convert to viewable surfaces
-                surfaces = obs_module.obs_to_surfaces(obs, preview_size=600)
-                
-                channel_idx = vision_mode - 1
-                surf, label = surfaces[channel_idx]
-                
-                font_lg = pygame.font.SysFont(None, 48)
-                label_surf = font_lg.render(f"CNN View: {label} [1 to 6 to toggle]", True, (255, 255, 255))
-                screen.blit(label_surf, (20, 20))
-                
-                # Center the 600x600 surface
-                x_offset = (WIDTH - 600) // 2
-                y_offset = (HEIGHT - 600) // 2
-                screen.blit(surf, (x_offset, y_offset))
+                for snake in snakes:
+                    snake.draw(screen, camera_x, camera_y, current_zoom)
 
-        # FPS counter
-        current_fps = clock.get_fps()
-        if current_fps > 0:
-            fps_update_timer += 1
-            if current_fps < fps_min:
-                fps_min = current_fps
-            if current_fps > fps_max:
-                fps_max = current_fps
-            if fps_update_timer >= 30:
-                fps_display = current_fps
-                fps_update_timer = 0
+                # CNN observation debug overlay
+                if not player.dead:
+                    obs = obs_module.generate_observation(player, snakes, foods, food_grid, WORLD_RADIUS)
+                    previews = obs_module.obs_to_surfaces(obs, preview_size=100)
+                    preview_x = WIDTH - 110
+                    preview_y = 5
+                    small_font = pygame.font.SysFont(None, 16)
+                    for surf, label in previews:
+                        pygame.draw.rect(screen, (0, 0, 0), (preview_x - 2, preview_y - 2, 104, 118))
+                        screen.blit(surf, (preview_x, preview_y))
+                        label_surf = small_font.render(label, True, (200, 200, 200))
+                        screen.blit(label_surf, (preview_x + 2, preview_y + 102))
+                        preview_y += 120
+            else:
+                if not player.dead:
+                    # Clear screen completely for debug vision map
+                    screen.fill((0, 0, 0))
 
-        font = pygame.font.SysFont(None, 24)
-        alive_count = sum(1 for s in snakes if not s.dead)
-        rl_alive = sum(1 for i in rl_indices if not snakes[i].dead)
-        status = "DEAD" if player.dead else f"Mass: {int(player.mass)}"
-        info_text = f"{status} | Kills: {player.kills} | Alive: {alive_count}/{len(snakes)} | RL alive: {rl_alive}/6"
-        screen.blit(font.render(info_text, True, (255, 255, 255)), (10, 10))
+                    obs = obs_module.generate_observation(player, snakes, foods, food_grid, WORLD_RADIUS)
+                    # Convert to viewable surfaces
+                    surfaces = obs_module.obs_to_surfaces(obs, preview_size=600)
 
-        fps_color = (80, 255, 80) if fps_display >= 50 else (255, 255, 80) if fps_display >= 30 else (255, 80, 80)
-        fps_text = f"FPS: {fps_display:.0f}  (min:{fps_min:.0f} max:{fps_max:.0f})"
-        screen.blit(font.render(fps_text, True, fps_color), (WIDTH - 310, HEIGHT - 30))
+                    channel_idx = vision_mode - 1
+                    surf, label = surfaces[channel_idx]
 
-        # Legend
-        small_font = pygame.font.SysFont(None, 18)
-        y_off = 30
-        for bt in bot_ai.BOT_TYPES:
-            count = sum(1 for s in snakes if not s.dead and s.role == 'scripted' and s.bot_type == bt)
-            col = bot_ai.BOT_COLORS.get(bt, (200, 200, 200))
-            pygame.draw.circle(screen, col, (15, y_off + 4), 4)
-            screen.blit(small_font.render(f"{bt}: {count}", True, (180, 180, 180)), (25, y_off - 2))
-            y_off += 16
-        pygame.draw.circle(screen, (255, 215, 0), (15, y_off + 4), 4)
-        screen.blit(small_font.render(f"RL agent: {rl_alive}", True, (180, 180, 180)), (25, y_off - 2))
+                    font_lg = pygame.font.SysFont(None, 48)
+                    label_surf = font_lg.render(f"CNN View: {label} [1 to 6 to toggle]", True, (255, 255, 255))
+                    screen.blit(label_surf, (20, 20))
 
-        pygame.display.flip()
-        clock.tick(FPS)
+                    # Center the 600x600 surface
+                    x_offset = (WIDTH - 600) // 2
+                    y_offset = (HEIGHT - 600) // 2
+                    screen.blit(surf, (x_offset, y_offset))
+
+            # FPS counter
+            current_fps = clock.get_fps()
+            if current_fps > 0:
+                fps_update_timer += 1
+                if current_fps < fps_min:
+                    fps_min = current_fps
+                if current_fps > fps_max:
+                    fps_max = current_fps
+                if fps_update_timer >= 30:
+                    fps_display = current_fps
+                    fps_update_timer = 0
+
+            font = pygame.font.SysFont(None, 24)
+            alive_count = sum(1 for s in snakes if not s.dead)
+            rl_alive = sum(1 for i in rl_indices if not snakes[i].dead)
+            status = "DEAD" if player.dead else f"Mass: {int(player.mass)}"
+            info_text = f"{status} | Kills: {player.kills} | Alive: {alive_count}/{len(snakes)} | RL alive: {rl_alive}/6"
+            screen.blit(font.render(info_text, True, (255, 255, 255)), (10, 10))
+
+            fps_color = (80, 255, 80) if fps_display >= 50 else (255, 255, 80) if fps_display >= 30 else (255, 80, 80)
+            fps_text = f"FPS: {fps_display:.0f}  (min:{fps_min:.0f} max:{fps_max:.0f})"
+            screen.blit(font.render(fps_text, True, fps_color), (WIDTH - 310, HEIGHT - 30))
+
+            # Legend
+            small_font = pygame.font.SysFont(None, 18)
+            y_off = 30
+            for bt in bot_ai.BOT_TYPES:
+                count = sum(1 for s in snakes if not s.dead and s.role == 'scripted' and s.bot_type == bt)
+                col = bot_ai.BOT_COLORS.get(bt, (200, 200, 200))
+                pygame.draw.circle(screen, col, (15, y_off + 4), 4)
+                screen.blit(small_font.render(f"{bt}: {count}", True, (180, 180, 180)), (25, y_off - 2))
+                y_off += 16
+            pygame.draw.circle(screen, (255, 215, 0), (15, y_off + 4), 4)
+            screen.blit(small_font.render(f"RL agent: {rl_alive}", True, (180, 180, 180)), (25, y_off - 2))
+
+            pygame.display.flip()
+            clock.tick(FPS)
 
     if not args.simulate:
         pygame.quit()
