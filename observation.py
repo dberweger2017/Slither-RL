@@ -87,7 +87,7 @@ def generate_observation(player, snakes, foods, food_grid, world_radius):
         head_d = math.hypot(snake.head[0] - hx, snake.head[1] - hy)
         if head_d > VIEW_RADIUS + 200:
             continue
-        mass_intensity = min(1.0, snake.mass / 2000.0)
+        mass_intensity = max(0.3, min(1.0, snake.mass / 2000.0))
         for seg in snake.segments:
             d = math.hypot(seg[0] - hx, seg[1] - hy)
             if d > VIEW_RADIUS:

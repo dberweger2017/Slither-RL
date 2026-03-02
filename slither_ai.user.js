@@ -111,7 +111,7 @@
                 if (hd > VIEW_RADIUS + 200) continue;
 
                 const eRad = Math.max(15, s.sc * 20);
-                const massIntensity = Math.min(1.0, (s.sct * 30) / 2000.0);
+                const massIntensity = Math.max(0.3, Math.min(1.0, (s.sct * 30) / 2000.0));
 
                 for (let j = 0; j < s.pts.length; j += 2) {
                     const pt = s.pts[j];
