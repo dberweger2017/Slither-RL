@@ -203,6 +203,14 @@ def load_rl_opponents(n=6):
     weights = np.array([2.0 ** (i / max(n_ckpts, 1)) for i in range(n_ckpts)])
     weights /= weights.sum()
 
+    # Bypass version mismatch json/pickle unpickling errors
+    custom_objects = {
+        "learning_rate": 5e-5,
+        "clip_range": 0.2,
+        "lr_schedule": lambda _: 5e-5,
+        "clip_range_schedule": lambda _: 0.2
+    }
+
     chosen = np.random.choice(n_ckpts, size=min(n, n_ckpts), replace=True, p=weights)
     models = []
     for idx in chosen:
@@ -211,7 +219,7 @@ def load_rl_opponents(n=6):
         # Try RecurrentPPO first
         if HAS_RECURRENT:
             try:
-                model = RecurrentPPO.load(path, device=device)
+                model = RecurrentPPO.load(path, device=device, custom_objects=custom_objects)
                 models.append(model)
                 IS_LSTM = True
                 loaded = True
@@ -220,7 +228,7 @@ def load_rl_opponents(n=6):
                 pass
         if not loaded:
             try:
-                model = PPO.load(path, device=device)
+                model = PPO.load(path, device=device, custom_objects=custom_objects)
                 models.append(model)
                 loaded = True
                 print(f"  Loaded (PPO): {files[idx]}")
