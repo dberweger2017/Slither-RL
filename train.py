@@ -120,6 +120,7 @@ class SelfPlayCallback(BaseCallback):
         self.ep_boost_penalty = []
         self.ep_kill_reward = []
         self.ep_proximity_reward = []
+        self.ep_loot_bonus_reward = []
 
     def _on_training_start(self):
         self.start_time = time.time()
@@ -164,6 +165,7 @@ class SelfPlayCallback(BaseCallback):
             self.ep_boost_penalty.append(info.get('boost_penalty', 0))
             self.ep_kill_reward.append(info.get('kill_reward', 0))
             self.ep_proximity_reward.append(info.get('proximity_reward', 0))
+            self.ep_loot_bonus_reward.append(info.get('loot_bonus_reward', 0))
 
             dc = info.get('death_cause', 'collision')
             if dc in self.death_causes:
@@ -182,6 +184,7 @@ class SelfPlayCallback(BaseCallback):
                 self.logger.record("slither/kills_total", np.sum(self.ep_kills[-n:]))
                 self.logger.record("slither/food_eaten_mean", np.mean(self.ep_food_eaten[-n:]))
                 self.logger.record("slither/boost_pct", np.mean(self.ep_boost_pct[-n:]))
+                self.logger.record("slither/loot_bonus_reward", np.mean(self.ep_loot_bonus_reward[-n:]))
                 self.logger.record("slither/wall_close_pct", np.mean(self.ep_wall_close_pct[-n:]))
                 self.logger.record("slither/safe_space_pct", np.mean(self.ep_safe_space[-n:]))
                 if self.ep_time_to_100:
@@ -221,10 +224,11 @@ class SelfPlayCallback(BaseCallback):
                 avg_food = np.mean(self.ep_food_reward[-n:])
                 avg_kill = np.mean(self.ep_kill_reward[-n:])
                 avg_prox = np.mean(self.ep_proximity_reward[-n:])
+                avg_loot = np.mean(self.ep_loot_bonus_reward[-n:])
                 avg_time_pen = np.mean(self.ep_time_penalty[-n:])
                 avg_boost_pen = np.mean(self.ep_boost_penalty[-n:])
                 
-                print(f"   Reward breakdown: Food: {avg_food:+.2f} | Kills: {avg_kill:+.2f} | Prox: {avg_prox:+.2f}")
+                print(f"   Reward breakdown: Food: {avg_food:+.2f} | Loot: {avg_loot:+.2f} | Kills: {avg_kill:+.2f} | Prox: {avg_prox:+.2f}")
                 print(f"   Penalty breakdown: Death/Time: {avg_time_pen:+.2f} | Boost: {avg_boost_pen:+.2f}")
 
                 avg_time_100 = np.mean(self.ep_time_to_100[-100:]) if self.ep_time_to_100 else 0

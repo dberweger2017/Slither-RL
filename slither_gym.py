@@ -20,6 +20,9 @@ START_LENGTH = 10
 START_MASS = 50
 MASS_PER_FOOD = 5
 FOOD_FRICTION = 0.92
+FOOD_REWARD_DIVISOR = 4.0
+LOOT_BONUS_MULTIPLIER = 2.0
+LOOT_BONUS_WINDOW_STEPS = 180  # ~3 seconds at 60 FPS
 
 
 def _angle_diff(a, b):
@@ -155,11 +158,13 @@ class SlitherEnv(gymnasium.Env):
         self.step_count = 0
         self.prev_mass = START_MASS
         self.pending_kill_mass = 0
+        self.loot_bonus_timer = 0
 
         # Episode-level metric tracking
         self.peak_mass = START_MASS
         self.food_eaten = 0
         self.boost_frames = 0
+        self.loot_bonus_frames = 0
         self.wall_close_frames = 0
         self.death_cause = 'alive'
         self.time_to_100_mass = None
@@ -282,6 +287,8 @@ class SlitherEnv(gymnasium.Env):
         self.peak_mass = START_MASS
         self.food_eaten = 0
         self.boost_frames = 0
+        self.loot_bonus_timer = 0
+        self.loot_bonus_frames = 0
         self.wall_close_frames = 0
         self.death_cause = 'alive'
         self._cumulative_reward = 0.0
@@ -321,6 +328,8 @@ class SlitherEnv(gymnasium.Env):
     def step(self, action):
         self.step_count += 1
         self.pending_kill_mass = 0
+        if self.loot_bonus_timer > 0:
+            self.loot_bonus_timer -= 1
 
         self._apply_action(self.player, action)
         if self.player.is_boosting:
@@ -379,6 +388,7 @@ class SlitherEnv(gymnasium.Env):
                         self.death_cause = 'collision'
                     if owner.is_player:
                         self.pending_kill_mass += sa.mass
+                        self.loot_bonus_timer = max(self.loot_bonus_timer, LOOT_BONUS_WINDOW_STEPS)
                     self._explode_snake(sa)
                     break
 
@@ -424,6 +434,9 @@ class SlitherEnv(gymnasium.Env):
             if self.time_to_100_mass is None and self.player.mass >= 100:
                 self.time_to_100_mass = self.step_count
 
+            if self.loot_bonus_timer > 0:
+                self.loot_bonus_frames += 1
+
             nearby_bots = self.segment_grid.query(self.player.head[0], self.player.head[1], 500)
             bots_found = sum(1 for (owner, seg) in nearby_bots if owner is not self.player)
             if bots_found == 0:
@@ -455,6 +468,8 @@ class SlitherEnv(gymnasium.Env):
             'food_eaten': self.food_eaten,
             'mass_per_frame': mass_growth_rate,
             'boost_pct': self.boost_frames / max(self.step_count, 1),
+            'loot_bonus_pct': self.loot_bonus_frames / max(self.step_count, 1),
+            'loot_bonus_timer': self.loot_bonus_timer,
             'wall_close_pct': self.wall_close_frames / max(self.step_count, 1),
             'death_cause': self.death_cause,
             'time_to_100_mass': self.time_to_100_mass,
@@ -471,6 +486,7 @@ class SlitherEnv(gymnasium.Env):
             'boost_penalty': 0.0,
             'kill_reward': 0.0,
             'proximity_reward': 0.0,
+            'loot_bonus_reward': 0.0,
         }
 
         if self.player.dead:
@@ -483,9 +499,13 @@ class SlitherEnv(gymnasium.Env):
         reward = 0.0
         mass_diff = self.player.mass - self.prev_mass
         
-        # Change 1 & 2: Balanced Eating vs. Boosting
+        # Eating vs boosting: stronger food pull, boost still costs mass.
         if mass_diff > 0:
-            food_rew = mass_diff / 5.0
+            food_rew = mass_diff / FOOD_REWARD_DIVISOR
+            if self.loot_bonus_timer > 0:
+                bonus_delta = food_rew * (LOOT_BONUS_MULTIPLIER - 1.0)
+                food_rew *= LOOT_BONUS_MULTIPLIER
+                reward_breakdown['loot_bonus_reward'] = bonus_delta
             reward += food_rew
             reward_breakdown['food_reward'] = food_rew
         else:
