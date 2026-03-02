@@ -8,7 +8,7 @@ import math
 import random
 
 BOT_TYPES = ['random', 'forager', 'bully', 'scavenger', 'patrol',
-             'parasite', 'trapper', 'interceptor', 'hunter']
+             'parasite', 'trapper', 'interceptor', 'hunter', 'harvester']
 
 BOT_COLORS = {
     'random': (180, 180, 180),
@@ -20,6 +20,7 @@ BOT_COLORS = {
     'trapper': (200, 50, 50),
     'interceptor': (80, 255, 255),
     'hunter': (255, 255, 80),
+    'harvester': (80, 220, 140),
 }
 
 # ──────────────────────────── Helpers ────────────────────────────
@@ -60,6 +61,32 @@ def best_food_cluster(snake, foods, max_dist=500, top_n=8):
     cy = sum(f.y for f, _ in cluster) / len(cluster)
     cd = math.hypot(cx - snake.head[0], cy - snake.head[1])
     return (cx, cy), cd
+
+
+def best_food_patch(snake, foods, max_dist=700, top_n=14):
+    """Find a rich nearby patch using value-weighted centroid and total value."""
+    candidates = []
+    for f in foods:
+        d = math.hypot(f.x - snake.head[0], f.y - snake.head[1])
+        if 0 < d < max_dist:
+            # Prefer higher value and closer food for patch construction.
+            rank = d / (f.value + 0.5)
+            candidates.append((rank, f, d))
+
+    if len(candidates) < 3:
+        return None, None, 0.0
+
+    candidates.sort(key=lambda x: x[0])
+    patch = candidates[:top_n]
+    total_weight = sum(f.value + 0.3 for _, f, _ in patch)
+    if total_weight <= 0:
+        return None, None, 0.0
+
+    cx = sum(f.x * (f.value + 0.3) for _, f, _ in patch) / total_weight
+    cy = sum(f.y * (f.value + 0.3) for _, f, _ in patch) / total_weight
+    cd = math.hypot(cx - snake.head[0], cy - snake.head[1])
+    total_value = sum(f.value for _, f, _ in patch)
+    return (cx, cy), cd, total_value
 
 
 def avoid_walls(snake, world_size, hard_margin=150, soft_margin=300):
@@ -406,6 +433,135 @@ def ai_scavenger(snake, foods, snakes, world_size, segment_grid=None):
     snake.is_boosting = False
 
 
+def ai_harvester(snake, foods, snakes, world_size, segment_grid=None):
+    """
+    Harvester: Safe food-maximizer.
+    - Grabs immediate nearby orbs.
+    - Prefers rich food patches nearby.
+    - Sprints for big drops.
+    - Avoids fights, with occasional low-frequency encircle of tiny prey.
+    """
+    wall_angle, wall_urg = avoid_walls(snake, world_size)
+    if wall_urg > 0.55:
+        snake.target_angle = wall_angle
+        snake.is_boosting = wall_urg > 0.85
+        return
+
+    # Immediate body danger always has top priority.
+    dodge, d_dist = dodge_bodies(snake, snakes, segment_grid, radius=110)
+    if dodge is not None and d_dist < 70:
+        snake.target_angle = dodge
+        snake.is_boosting = d_dist < 45
+        return
+
+    # Stay alive: flee from larger closing threats.
+    threat, t_dist = nearest_threat(snake, snakes, radius=240)
+    if threat and (threat.mass > snake.mass * 1.1 or t_dist < 70):
+        flee_x = snake.head[0] - threat.head[0]
+        flee_y = snake.head[1] - threat.head[1]
+        snake.target_angle = math.atan2(flee_y, flee_x)
+        snake.is_boosting = (t_dist < 120) or (threat.mass > snake.mass * 1.6)
+        if wall_angle is not None and wall_urg > 0:
+            snake.target_angle = _blend_angle(snake.target_angle, wall_angle, wall_urg)
+        return
+
+    # Rare opportunistic containment of very small nearby prey.
+    hunt_cd = getattr(snake, "_harvest_hunt_cooldown", 0)
+    if hunt_cd > 0:
+        hunt_cd -= 1
+    snake._harvest_hunt_cooldown = hunt_cd
+
+    if snake.mass > 180 and hunt_cd <= 0 and random.random() < 0.2:
+        best_prey = None
+        best_dist = float('inf')
+        for s in snakes:
+            if s is snake or s.dead:
+                continue
+            if s.mass <= snake.mass * 0.5:
+                d = math.hypot(s.head[0] - snake.head[0], s.head[1] - snake.head[1])
+                if d < 240 and d < best_dist:
+                    best_prey = s
+                    best_dist = d
+        if best_prey is not None:
+            angle_to_prey = math.atan2(best_prey.head[1] - snake.head[1],
+                                       best_prey.head[0] - snake.head[0])
+            side = 1 if _angle_diff(best_prey.angle, angle_to_prey) > 0 else -1
+            offset = math.pi / 2.8 if best_dist < 100 else math.pi / 3.4
+            snake.target_angle = angle_to_prey + side * offset
+            snake.is_boosting = best_dist > 150 and snake.mass > 230
+            snake._harvest_hunt_cooldown = random.randint(80, 170)
+            if wall_angle is not None and wall_urg > 0:
+                snake.target_angle = _blend_angle(snake.target_angle, wall_angle, wall_urg)
+            return
+
+    # Priority 1: instant nearby orb pickup.
+    instant_big = nearest_food(snake, foods, max_dist=180, min_value=2)
+    if instant_big:
+        snake.target_angle = math.atan2(instant_big.y - snake.head[1],
+                                        instant_big.x - snake.head[0])
+        bd = math.hypot(instant_big.x - snake.head[0], instant_big.y - snake.head[1])
+        snake.is_boosting = bd > 70 and snake.mass > 80
+        if wall_angle is not None and wall_urg > 0:
+            snake.target_angle = _blend_angle(snake.target_angle, wall_angle, wall_urg)
+        return
+
+    instant_food = nearest_food(snake, foods, max_dist=135)
+    if instant_food:
+        snake.target_angle = math.atan2(instant_food.y - snake.head[1],
+                                        instant_food.x - snake.head[0])
+        snake.is_boosting = False
+        if wall_angle is not None and wall_urg > 0:
+            snake.target_angle = _blend_angle(snake.target_angle, wall_angle, wall_urg)
+        return
+
+    # Priority 2: choose between rich patch and jackpot drops.
+    patch, p_dist, p_value = best_food_patch(snake, foods, max_dist=760, top_n=16)
+    jackpot = nearest_food(snake, foods, max_dist=950, min_value=3)
+
+    target_angle = None
+    boost = False
+    if jackpot:
+        j_dist = math.hypot(jackpot.x - snake.head[0], jackpot.y - snake.head[1])
+        if jackpot.value >= 4 and j_dist < 720:
+            target_angle = math.atan2(jackpot.y - snake.head[1], jackpot.x - snake.head[0])
+            boost = j_dist < 300 and snake.mass > 90
+        else:
+            patch_score = (p_value / (p_dist + 35.0)) if patch else -1.0
+            jackpot_score = (jackpot.value * 2.5) / (j_dist + 35.0)
+            if patch is not None and p_dist < 520 and patch_score >= jackpot_score:
+                target_angle = math.atan2(patch[1] - snake.head[1], patch[0] - snake.head[0])
+                boost = p_value > 12 and p_dist > 200 and snake.mass > 130
+            else:
+                target_angle = math.atan2(jackpot.y - snake.head[1], jackpot.x - snake.head[0])
+                boost = j_dist < 260 and snake.mass > 90
+    elif patch is not None:
+        target_angle = math.atan2(patch[1] - snake.head[1], patch[0] - snake.head[0])
+        boost = p_value > 10 and p_dist > 220 and snake.mass > 120
+    else:
+        fallback = nearest_food(snake, foods, max_dist=420)
+        if fallback:
+            target_angle = math.atan2(fallback.y - snake.head[1], fallback.x - snake.head[0])
+            boost = False
+        else:
+            # Stable wandering toward center bias to keep finding food.
+            snake._wander_timer -= 1
+            if snake._wander_timer <= 0:
+                snake.target_angle = random.uniform(0, 2 * math.pi)
+                snake._wander_timer = random.randint(30, 90)
+            snake.target_angle = _blend_angle(
+                snake.target_angle,
+                math.atan2(-snake.head[1], -snake.head[0]),
+                0.08
+            )
+            snake.is_boosting = False
+            return
+
+    snake.target_angle = target_angle
+    snake.is_boosting = boost
+    if wall_angle is not None and wall_urg > 0:
+        snake.target_angle = _blend_angle(snake.target_angle, wall_angle, wall_urg)
+
+
 def ai_patrol(snake, foods, snakes, world_size, segment_grid=None):
     """Patrol: Sweeps edges with randomized radius, eats along the way."""
     # Randomize patrol radius per snake (stable via _patrol_idx seed)
@@ -696,6 +852,7 @@ _AI_MAP = {
     'forager': ai_forager,
     'bully': ai_bully,
     'scavenger': ai_scavenger,
+    'harvester': ai_harvester,
     'patrol': ai_patrol,
     'parasite': ai_parasite,
     'trapper': ai_trapper,
