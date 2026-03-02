@@ -418,11 +418,11 @@ class SlitherEnv(gymnasium.Env):
         reward = 0.0
         mass_diff = self.player.mass - self.prev_mass
         if mass_diff > 0:
-            # 1.0 reward per unit of mass gained
-            reward += mass_diff / 1.0
+            # Major incentive to eat food
+            reward += mass_diff / 5.0
         else:
-            # 0.5 penalty per unit of mass lost (boosting)
-            reward += mass_diff / 2.0
+            # Near-free boosting to encourage hunting
+            reward += mass_diff / 100.0
         if self.pending_kill_mass > 0:
             reward += self.pending_kill_mass / 1.0
         # Neutral survival — no reward or penalty for existing
