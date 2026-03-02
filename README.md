@@ -19,8 +19,7 @@ A complete Gymnasium environment, Python physics engine, and Stable Baselines 3 
 
 ### Requirements
 ```bash
-pip install -r requirements.txt
-# (Includes sb3-contrib for LSTM support)
+pip install stable-baselines3[extra] sb3-contrib gymnasium pygame numpy torch moviepy tensorboard
 ```
 
 ### Basic Training (LSTM)

@@ -198,11 +198,12 @@ class SelfPlayCallback(BaseCallback):
                 self.death_causes = {'collision': 0, 'wall': 0, 'survived': 0}
                 print(f"{'='*60}\n")
 
-            # Video recording
+            # Video recording every N timesteps
             if (self.record_every > 0 and
-                    self.episode_count - self.last_record_episode >= self.record_every):
+                    self.num_timesteps - self.last_record_episode >= self.record_every):
                 self._record_eval_episode()
-                self.last_record_episode = self.episode_count
+                # Instead of saving episode_count, save num_timesteps to track
+                self.last_record_episode = self.num_timesteps
 
         return True
 
@@ -280,8 +281,8 @@ def main():
     parser.add_argument('--num-envs', type=int, default=4, help='Number of parallel envs')
     parser.add_argument('--stage', type=int, default=3, choices=[1, 2, 3],
                        help='Training stage (1: food only, 2: bots, 3: full self-play)')
-    parser.add_argument('--record-every', type=int, default=500,
-                       help='Record an eval episode to TensorBoard every N episodes (0=disabled)')
+    parser.add_argument('--record-every', type=int, default=100000,
+                       help='Record an eval episode every N timesteps (0=disabled)')
     parser.add_argument('--no-lstm', action='store_true',
                        help='Use standard PPO instead of RecurrentPPO (LSTM)')
     args = parser.parse_args()
