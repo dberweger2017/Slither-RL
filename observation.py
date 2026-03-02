@@ -102,12 +102,12 @@ def generate_observation(player, snakes, foods, food_grid, world_radius):
 
     # Channel 2: Food
     nearby_food = food_grid.query(hx, hy, VIEW_RADIUS)
-    for food in nearby_food:
-        d = math.hypot(food.x - hx, food.y - hy)
+    for f in nearby_food:
+        d = math.hypot(f.x - hx, f.y - hy)
         if d > VIEW_RADIUS:
             continue
-        px, py = _world_to_ego(food.x, food.y, hx, hy, cos_a, sin_a)
-        intensity = min(1.0, food.value / 5.0)
+        px, py = _world_to_ego(f.x, f.y, hx, hy, cos_a, sin_a)
+        intensity = min(1.0, f.value / 5.0)
         _stamp_circle(obs[2], px, py, 3, max(0.3, intensity))  # Fixed 3px glow radius
 
     # Channel 3: Boundary (fully vectorized — no Python pixel loops)
