@@ -38,13 +38,14 @@ class SlitherFeatureExtractor(BaseFeaturesExtractor):
         n_channels = observation_space['map'].shape[0]
 
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_channels, 32, kernel_size=3, stride=2, padding=1), nn.ReLU(),  # 84 -> 42
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.ReLU(),          # 42 -> 21
+            nn.Conv2d(n_channels, 32, kernel_size=3, stride=2, padding=1), nn.ReLU(),  # 168 -> 84
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.ReLU(),          # 84 -> 42
+            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1), nn.ReLU(),          # 42 -> 21
             nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1), nn.ReLU(),          # 21 -> 11
             nn.Flatten(),
         )
         with torch.no_grad():
-            cnn_out_dim = self.cnn(torch.zeros(1, n_channels, 84, 84)).shape[1]
+            cnn_out_dim = self.cnn(torch.zeros(1, n_channels, 168, 168)).shape[1]
 
         self.cnn_fc = nn.Sequential(nn.Linear(cnn_out_dim, 512), nn.ReLU())
 

@@ -6,7 +6,7 @@ Channels: Self, Enemies, Food, Boundary, Enemy Velocity.
 import math
 import numpy as np
 
-MAP_SIZE = 84
+MAP_SIZE = 168
 VIEW_RADIUS = 500.0
 PIXELS_PER_UNIT = MAP_SIZE / (2 * VIEW_RADIUS)
 CENTER = MAP_SIZE // 2
@@ -17,10 +17,10 @@ _YY, _XX = np.mgrid[0:MAP_SIZE, 0:MAP_SIZE]
 def _world_to_ego(wx, wy, head_x, head_y, cos_a, sin_a):
     dx = wx - head_x
     dy = wy - head_y
-    rx = dx * cos_a + dy * sin_a
-    ry = -dx * sin_a + dy * cos_a
-    px = CENTER + rx * PIXELS_PER_UNIT
-    py = CENTER - ry * PIXELS_PER_UNIT
+    dx_ego = dy * cos_a - dx * sin_a
+    dy_ego = dx * cos_a + dy * sin_a
+    px = CENTER + dx_ego * PIXELS_PER_UNIT
+    py = CENTER - dy_ego * PIXELS_PER_UNIT
     return px, py
 
 
@@ -65,11 +65,11 @@ def generate_observation(player, snakes, foods, food_grid, world_radius):
     obs = np.zeros((5, MAP_SIZE, MAP_SIZE), dtype=np.float32)
     hx, hy = player.head
     heading = player.angle
-    cos_a = math.cos(-heading + math.pi / 2)
-    sin_a = math.sin(-heading + math.pi / 2)
+    cos_a = math.cos(heading)
+    sin_a = math.sin(heading)
 
     # Channel 0: Self
-    _stamp_circle(obs[0], CENTER, CENTER, max(1, player.radius * PIXELS_PER_UNIT), 1.0)
+    _stamp_circle(obs[0], CENTER, CENTER, max(2, int(player.radius * PIXELS_PER_UNIT)), 1.0)
     num_segs = len(player.segments)
     for i, seg in enumerate(player.segments[1:], 1):
         d = math.hypot(seg[0] - hx, seg[1] - hy)
@@ -108,15 +108,16 @@ def generate_observation(player, snakes, foods, food_grid, world_radius):
             continue
         px, py = _world_to_ego(f.x, f.y, hx, hy, cos_a, sin_a)
         intensity = min(1.0, f.value / 5.0)
-        _stamp_circle(obs[2], px, py, 3, max(0.3, intensity))  # Fixed 3px glow radius
+        food_px_radius = max(1, int(f.radius * PIXELS_PER_UNIT + 0.5))
+        _stamp_circle(obs[2], px, py, food_px_radius, max(0.3, intensity))
 
     # Channel 3: Boundary (fully vectorized — no Python pixel loops)
     dist_from_center = math.hypot(hx, hy)
     if dist_from_center + VIEW_RADIUS > world_radius - 300:
         rel_px = (_XX - CENTER).astype(np.float32) / PIXELS_PER_UNIT
         rel_py = -((_YY - CENTER).astype(np.float32)) / PIXELS_PER_UNIT
-        wx = hx + rel_px * cos_a - rel_py * sin_a
-        wy = hy + rel_px * sin_a + rel_py * cos_a
+        wx = hx + rel_py * cos_a - rel_px * sin_a
+        wy = hy + rel_px * cos_a + rel_py * sin_a
         world_dist = np.sqrt(wx * wx + wy * wy)
         d_to_edge = world_radius - world_dist
         obs[3] = np.clip(1.0 - d_to_edge / 300.0, 0.0, 1.0)

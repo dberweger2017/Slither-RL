@@ -301,13 +301,18 @@ def main():
     fps_min, fps_max = 999, 0
     fps_update_timer, fps_display = 0, 60
 
+    vision_mode = 0  # 0: normal, 1-5: specific CNN channels
+
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key == pygame.K_v:
+                    vision_mode = (vision_mode + 1) % 6
 
         # Player input
         if not player.dead:
@@ -463,48 +468,76 @@ def main():
 
         # --- DRAW ---
         screen.fill(BG_COLOR)
-        current_zoom = BASE_ZOOM / (1 + (player.mass - START_MASS) * 0.0003)
-        current_zoom = max(0.25, min(BASE_ZOOM, current_zoom))
-        camera_x = player.head[0] - (WIDTH / 2) / current_zoom
-        camera_y = player.head[1] - (HEIGHT / 2) / current_zoom
+        
+        if vision_mode == 0:
+            current_zoom = BASE_ZOOM / (1 + (player.mass - START_MASS) * 0.0003)
+            current_zoom = max(0.25, min(BASE_ZOOM, current_zoom))
+            camera_x = player.head[0] - (WIDTH / 2) / current_zoom
+            camera_y = player.head[1] - (HEIGHT / 2) / current_zoom
 
-        grid_size = 50
-        start_x = int((-camera_x % grid_size) * current_zoom)
-        start_y = int((-camera_y % grid_size) * current_zoom)
-        scaled_grid = int(grid_size * current_zoom)
-        if scaled_grid > 0:
-            for x in range(start_x, WIDTH, scaled_grid):
-                pygame.draw.line(screen, GRID_COLOR, (x, 0), (x, HEIGHT))
-            for y in range(start_y, HEIGHT, scaled_grid):
-                pygame.draw.line(screen, GRID_COLOR, (0, y), (WIDTH, y))
+            grid_size = 50
+            start_x = int((-camera_x % grid_size) * current_zoom)
+            start_y = int((-camera_y % grid_size) * current_zoom)
+            scaled_grid = int(grid_size * current_zoom)
+            if scaled_grid > 0:
+                for x in range(start_x, WIDTH, scaled_grid):
+                    pygame.draw.line(screen, GRID_COLOR, (x, 0), (x, HEIGHT))
+                for y in range(start_y, HEIGHT, scaled_grid):
+                    pygame.draw.line(screen, GRID_COLOR, (0, y), (WIDTH, y))
 
-        cx_screen = int(-camera_x * current_zoom)
-        cy_screen = int(-camera_y * current_zoom)
-        cr_screen = int(WORLD_RADIUS * current_zoom)
-        pygame.draw.circle(screen, (200, 50, 50), (cx_screen, cy_screen), cr_screen, 3)
+            cx_screen = int(-camera_x * current_zoom)
+            cy_screen = int(-camera_y * current_zoom)
+            cr_screen = int(WORLD_RADIUS * current_zoom)
+            pygame.draw.circle(screen, (200, 50, 50), (cx_screen, cy_screen), cr_screen, 3)
 
-        for food in foods:
-            fx = int((food.x - camera_x) * current_zoom)
-            fy = int((food.y - camera_y) * current_zoom)
-            fr = max(1, int(food.radius * current_zoom))
-            pygame.draw.circle(screen, food.color, (fx, fy), fr)
+            for food in foods:
+                fx = int((food.x - camera_x) * current_zoom)
+                fy = int((food.y - camera_y) * current_zoom)
+                fr = max(1, int(food.radius * current_zoom))
+                pygame.draw.circle(screen, food.color, (fx, fy), fr)
 
-        for snake in snakes:
-            snake.draw(screen, camera_x, camera_y, current_zoom)
+            for snake in snakes:
+                snake.draw(screen, camera_x, camera_y, current_zoom)
 
-        # CNN observation debug overlay
-        if not player.dead:
-            obs = obs_module.generate_observation(player, snakes, foods, food_grid, WORLD_RADIUS)
-            previews = obs_module.obs_to_surfaces(obs, preview_size=100)
-            preview_x = WIDTH - 110
-            preview_y = 5
-            small_font = pygame.font.SysFont(None, 16)
-            for surf, label in previews:
-                pygame.draw.rect(screen, (0, 0, 0), (preview_x - 2, preview_y - 2, 104, 118))
-                screen.blit(surf, (preview_x, preview_y))
-                label_surf = small_font.render(label, True, (200, 200, 200))
-                screen.blit(label_surf, (preview_x + 2, preview_y + 102))
-                preview_y += 120
+            # CNN observation debug overlay
+            if not player.dead:
+                obs = obs_module.generate_observation(player, snakes, foods, food_grid, WORLD_RADIUS)
+                previews = obs_module.obs_to_surfaces(obs, preview_size=100)
+                preview_x = WIDTH - 110
+                preview_y = 5
+                small_font = pygame.font.SysFont(None, 16)
+                for surf, label in previews:
+                    pygame.draw.rect(screen, (0, 0, 0), (preview_x - 2, preview_y - 2, 104, 118))
+                    screen.blit(surf, (preview_x, preview_y))
+                    label_surf = small_font.render(label, True, (200, 200, 200))
+                    screen.blit(label_surf, (preview_x + 2, preview_y + 102))
+                    preview_y += 120
+        else:
+            if not player.dead:
+                channel_idx = vision_mode - 1
+                obs = obs_module.generate_observation(player, snakes, foods, food_grid, WORLD_RADIUS)
+                channel = obs[channel_idx]
+                tints = [
+                    (0, 200, 255), (255, 80, 80), (80, 255, 80),
+                    (255, 200, 50), (255, 100, 255),
+                ]
+                labels = ['Self', 'Enemy', 'Food', 'Boundary', 'Velocity']
+                rgb = np.zeros((obs_module.MAP_SIZE, obs_module.MAP_SIZE, 3), dtype=np.uint8)
+                for c in range(3):
+                    rgb[:, :, c] = (channel * tints[channel_idx][c]).clip(0, 255).astype(np.uint8)
+                surf = pygame.surfarray.make_surface(rgb.transpose(1, 0, 2))
+                scale_size = min(WIDTH, HEIGHT) - 80
+                surf = pygame.transform.scale(surf, (scale_size, scale_size))
+                x_offset = (WIDTH - scale_size) // 2
+                y_offset = (HEIGHT - scale_size) // 2
+                
+                # Render channel centered
+                pygame.draw.rect(screen, (30, 30, 30), (x_offset-10, y_offset-10, scale_size+20, scale_size+20))
+                screen.blit(surf, (x_offset, y_offset))
+
+                font_lg = pygame.font.SysFont(None, 48)
+                label_surf = font_lg.render(f"CNN View: {labels[channel_idx]} [V to toggle]", True, (255, 255, 255))
+                screen.blit(label_surf, (20, 20))
 
         # FPS counter
         current_fps = clock.get_fps()
