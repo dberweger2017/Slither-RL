@@ -86,7 +86,7 @@ class CheckpointManager:
 
 class SelfPlayCallback(BaseCallback):
     def __init__(self, checkpoint_manager, env, save_every=SAVE_EVERY_EPISODES,
-                 record_every=500, stage=3, use_lstm=True, verbose=1):
+                 record_every=100000, stage=3, use_lstm=True, verbose=1):
         super().__init__(verbose)
         self.ckpt_mgr = checkpoint_manager
         self.env = env
@@ -122,6 +122,10 @@ class SelfPlayCallback(BaseCallback):
     def _on_training_start(self):
         self.start_time = time.time()
         self.env.env_method('load_selfplay_from_dir', CHECKPOINT_DIR, 6)
+        if self.record_every > 0:
+            print(f"🎥 Video recording enabled: every {self.record_every:,} timesteps")
+        else:
+            print("🎥 Video recording disabled (--record-every 0)")
 
     def _on_step(self):
         infos = self.locals.get('infos', [])
@@ -241,12 +245,13 @@ class SelfPlayCallback(BaseCallback):
                 self.death_causes = {'collision': 0, 'wall': 0, 'survived': 0}
                 print(f"{'='*60}\n")
 
-            # Video recording every N timesteps
-            if (self.record_every > 0 and
-                    self.num_timesteps - self.last_record_episode >= self.record_every):
-                self._record_eval_episode()
-                # Instead of saving episode_count, save num_timesteps to track
-                self.last_record_episode = self.num_timesteps
+        # Video recording every N timesteps (independent of episode endings)
+        if (self.record_every > 0 and
+                self.num_timesteps - self.last_record_episode >= self.record_every):
+            print(f"\n🎥 Triggering eval video at {self.num_timesteps:,} timesteps")
+            self._record_eval_episode()
+            # Keep cadence stable even when recording fails
+            self.last_record_episode = self.num_timesteps
 
         return True
 
@@ -285,6 +290,7 @@ class SelfPlayCallback(BaseCallback):
             eval_env.close()
 
             if len(frames) < 10:
+                print(f"  ⚠️  Skipped video write: only {len(frames)} frames collected")
                 return
 
             import torch
@@ -312,7 +318,7 @@ class SelfPlayCallback(BaseCallback):
                 print(f"  ⚠️  Could not find TensorBoard writer for video logging")
 
         except Exception as e:
-            print(f"  ⚠️  Video recording failed: {e}")
+            print(f"  ⚠️  Video recording failed: {e!r}")
 
 
 def main():

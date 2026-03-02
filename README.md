@@ -38,7 +38,7 @@ python3 train.py
 | `--timesteps <N>` | `50,000,000` | Total training steps before auto-stop |
 | `--num-envs <N>` | `4` | Parallel environment subprocesses |
 | `--render` | off | Opens a live Pygame training HUD window (single env) |
-| `--record-every <N>`| `500` | Record an eval episode to TensorBoard every N episodes (0=disabled) |
+| `--record-every <N>`| `100,000` | Record an eval episode to TensorBoard every N timesteps (0=disabled) |
 | `--no-lstm` | off | Fallback to standard feedforward PPO instead of RecurrentPPO |
 
 ### Curriculum Learning Stages
