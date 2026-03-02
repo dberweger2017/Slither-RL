@@ -1,6 +1,7 @@
 """
 Play against trained RL models + scripted bots.
 Loads 6 policy agents from checkpoints (recency-weighted) + 9 scripted bots.
+Supports both standard PPO and RecurrentPPO (LSTM) models.
 """
 import pygame
 import math
@@ -13,6 +14,12 @@ import observation as obs_module
 from spatial_hash import SpatialHash
 from stable_baselines3 import PPO
 
+try:
+    from sb3_contrib import RecurrentPPO
+    HAS_RECURRENT = True
+except ImportError:
+    HAS_RECURRENT = False
+
 import torch
 from train import SlitherFeatureExtractor
 
@@ -23,6 +30,9 @@ elif torch.cuda.is_available():
     device = 'cuda'
 else:
     device = 'cpu'
+
+# Track whether loaded models are LSTM
+IS_LSTM = False
 
 WIDTH, HEIGHT = 1280, 900
 FPS = 60
@@ -177,7 +187,9 @@ def make_obs_for(snake, snakes, foods, food_grid, world_radius):
 
 
 def load_rl_opponents(n=6):
-    """Load n models from checkpoints with recency-weighted sampling."""
+    """Load n models from checkpoints with recency-weighted sampling.
+    Auto-detects RecurrentPPO (LSTM) vs standard PPO."""
+    global IS_LSTM
     if not os.path.exists(CHECKPOINT_DIR):
         print("No checkpoints/ directory found. RL agents will act randomly.")
         return []
@@ -195,14 +207,28 @@ def load_rl_opponents(n=6):
     models = []
     for idx in chosen:
         path = os.path.join(CHECKPOINT_DIR, files[idx])
-        try:
-            model = PPO.load(path, device=device)
-            models.append(model)
-            print(f"  Loaded: {files[idx]}")
-        except Exception as e:
-            print(f"  Failed to load {files[idx]}: {e}")
+        loaded = False
+        # Try RecurrentPPO first
+        if HAS_RECURRENT:
+            try:
+                model = RecurrentPPO.load(path, device=device)
+                models.append(model)
+                IS_LSTM = True
+                loaded = True
+                print(f"  Loaded (LSTM): {files[idx]}")
+            except Exception:
+                pass
+        if not loaded:
+            try:
+                model = PPO.load(path, device=device)
+                models.append(model)
+                loaded = True
+                print(f"  Loaded (PPO): {files[idx]}")
+            except Exception as e:
+                print(f"  Failed to load {files[idx]}: {e}")
 
-    print(f"Loaded {len(models)} RL opponents")
+    arch = "LSTM" if IS_LSTM else "PPO"
+    print(f"Loaded {len(models)} RL opponents ({arch})")
     return models
 
 def main():
@@ -254,6 +280,9 @@ def main():
         s.color = (255, 215, 0)
         rl_indices.append(len(snakes))
         snakes.append(s)
+
+    # LSTM hidden states for RL agents
+    rl_lstm_states = {}
 
     # Food
     foods = []
@@ -312,11 +341,23 @@ def main():
         for i, idx in enumerate(rl_indices):
             snake = snakes[idx]
             if snake.dead:
+                # Reset LSTM state on death
+                if IS_LSTM and i in rl_lstm_states:
+                    del rl_lstm_states[i]
                 continue
             if rl_models:
                 model = rl_models[i % len(rl_models)]
                 obs = make_obs_for(snake, snakes, foods, food_grid, WORLD_RADIUS)
-                action, _ = model.predict(obs, deterministic=False)
+                if IS_LSTM:
+                    lstm_state = rl_lstm_states.get(i, None)
+                    episode_start = np.array([lstm_state is None], dtype=bool)
+                    action, lstm_state = model.predict(
+                        obs, state=lstm_state,
+                        episode_start=episode_start,
+                        deterministic=False)
+                    rl_lstm_states[i] = lstm_state
+                else:
+                    action, _ = model.predict(obs, deterministic=False)
                 steering = float(np.clip(action[0], -1, 1))
                 boost = float(action[1]) > 0.5
                 turn_rate = max(0.04, BASE_TURN_RATE / (1 + math.log10(snake.mass / START_MASS) * 0.3))
@@ -329,7 +370,7 @@ def main():
         # Scripted bot AI
         for snake in snakes:
             if snake.role == 'scripted' and not snake.dead:
-                bot_ai.update(snake, foods, snakes, WORLD_RADIUS)
+                bot_ai.update(snake, foods, snakes, WORLD_RADIUS, segment_grid)
 
         # Update all snakes
         for snake in snakes:

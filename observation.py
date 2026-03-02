@@ -108,8 +108,7 @@ def generate_observation(player, snakes, foods, food_grid, world_radius):
             continue
         px, py = _world_to_ego(food.x, food.y, hx, hy, cos_a, sin_a)
         intensity = min(1.0, food.value / 5.0)
-        r_px = max(1, int(food.radius * PIXELS_PER_UNIT + 0.5))
-        _stamp_circle(obs[2], px, py, r_px, max(0.3, intensity))
+        _stamp_circle(obs[2], px, py, 3, max(0.3, intensity))  # Fixed 3px glow radius
 
     # Channel 3: Boundary (fully vectorized — no Python pixel loops)
     dist_from_center = math.hypot(hx, hy)

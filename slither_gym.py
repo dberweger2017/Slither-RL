@@ -119,7 +119,7 @@ class SlitherEnv(gymnasium.Env):
     Observation: Dict{'map': (5,84,84), 'state': (8,)}
     Action: Box[-1,1] x Box[0,1] = (steering, boost)
     """
-    metadata = {'render_modes': ['human'], 'render_fps': 60}
+    metadata = {'render_modes': ['human', 'rgb_array'], 'render_fps': 60}
 
     def __init__(self, num_scripted=9, num_selfplay=6, world_radius=2000,
                  food_count=500, max_steps=3000, render_mode=None):
@@ -157,6 +157,12 @@ class SlitherEnv(gymnasium.Env):
         self.boost_frames = 0
         self.wall_close_frames = 0
         self.death_cause = 'alive'
+
+        # Debug HUD state
+        self._last_action = np.array([0.0, 0.0])
+        self._last_reward = 0.0
+        self._cumulative_reward = 0.0
+        self._last_obs = None
 
         self._selfplay_policies = []
         self._selfplay_indices = []
@@ -232,13 +238,17 @@ class SlitherEnv(gymnasium.Env):
         self.boost_frames = 0
         self.wall_close_frames = 0
         self.death_cause = 'alive'
+        self._cumulative_reward = 0.0
+        self._last_action = np.array([0.0, 0.0])
+        self._last_reward = 0.0
 
         px, py = self._random_point()
         self.player = SnakeEntity(px, py, is_player=True)
         self.player.role = 'player'
         self.snakes = [self.player]
 
-        for btype in bot_ai.BOT_TYPES:
+        for i in range(self.num_scripted):
+            btype = bot_ai.BOT_TYPES[i % len(bot_ai.BOT_TYPES)]
             bx, by = self._random_point()
             s = SnakeEntity(bx, by, bot_type=btype)
             s.role = 'scripted'
@@ -303,7 +313,7 @@ class SlitherEnv(gymnasium.Env):
 
         for snake in self.snakes:
             if snake.role == 'scripted' and not snake.dead:
-                bot_ai.update(snake, self.foods, self.snakes, self.world_radius)
+                bot_ai.update(snake, self.foods, self.snakes, self.world_radius, self.segment_grid)
 
         for snake in self.snakes:
             snake.update()
@@ -382,6 +392,13 @@ class SlitherEnv(gymnasium.Env):
             self.death_cause = 'survived'
 
         obs = self._make_obs_for(self.player)
+
+        # Store debug info for HUD
+        self._last_action = np.array(action, dtype=np.float32)
+        self._last_reward = reward
+        self._cumulative_reward += reward
+        self._last_obs = obs
+
         mass_growth_rate = (self.player.mass - START_MASS) / max(self.step_count, 1)
         info = {
             'mass': self.player.mass if not self.player.dead else 0,
@@ -401,14 +418,14 @@ class SlitherEnv(gymnasium.Env):
         reward = 0.0
         mass_diff = self.player.mass - self.prev_mass
         if mass_diff > 0:
-            # Massive incentive to eat food
-            reward += mass_diff / 10.0
+            # Major incentive to eat food
+            reward += mass_diff / 5.0
         else:
-            # Softer penalty for losing mass via boosting
-            reward += mass_diff / 200.0
+            # Near-free boosting to encourage hunting
+            reward += mass_diff / 100.0
         if self.pending_kill_mass > 0:
-            reward += self.pending_kill_mass / 500.0
-        reward += 0.001
+            reward += self.pending_kill_mass / 1.0
+        # Neutral survival — no reward or penalty for existing
         if self.player.dead:
             return -10.0
         dist_to_wall = self.world_radius - math.hypot(
@@ -433,27 +450,147 @@ class SlitherEnv(gymnasium.Env):
         if self.render_mode != 'human':
             return
         import pygame
+        HUD_W = 220
+        GAME_W, GAME_H = 800, 600
+        SCREEN_W = GAME_W + HUD_W
         if self._screen is None:
             pygame.init()
-            self._screen = pygame.display.set_mode((800, 600))
+            self._screen = pygame.display.set_mode((SCREEN_W, GAME_H))
             pygame.display.set_caption("SlitherEnv Training View")
             self._clock = pygame.time.Clock()
+            self._hud_font = pygame.font.SysFont(None, 20)
+            self._hud_font_sm = pygame.font.SysFont(None, 16)
+            self._hud_font_lg = pygame.font.SysFont(None, 26)
+
+        # ── Game view ──
         self._screen.fill((20, 20, 20))
         if not self.player.dead:
-            cam_x = self.player.head[0] - 400
-            cam_y = self.player.head[1] - 300
+            cam_x = self.player.head[0] - GAME_W // 2
+            cam_y = self.player.head[1] - GAME_H // 2
+
+            # World boundary circle
+            cx_s = int(-cam_x)
+            cy_s = int(-cam_y)
+            pygame.draw.circle(self._screen, (60, 30, 30), (cx_s, cy_s),
+                             int(self.world_radius), 2)
+
             for food in self.foods:
                 fx, fy = int(food.x - cam_x), int(food.y - cam_y)
-                if 0 <= fx < 800 and 0 <= fy < 600:
-                    pygame.draw.circle(self._screen, (100, 255, 100), (fx, fy), 3)
+                if 0 <= fx < GAME_W and 0 <= fy < GAME_H:
+                    color = (100, 255, 100) if food.value <= 1 else (255, 200, 50)
+                    pygame.draw.circle(self._screen, color, (fx, fy),
+                                     max(2, int(food.radius * 0.6)))
             for snake in self.snakes:
                 if snake.dead:
                     continue
                 color = (0, 200, 255) if snake.is_player else snake.color
                 for seg in snake.segments:
                     sx, sy = int(seg[0] - cam_x), int(seg[1] - cam_y)
-                    pygame.draw.circle(self._screen, color, (sx, sy),
-                                     max(2, int(snake.radius * 0.8)))
+                    if -20 < sx < GAME_W + 20 and -20 < sy < GAME_H + 20:
+                        pygame.draw.circle(self._screen, color, (sx, sy),
+                                         max(2, int(snake.radius * 0.8)))
+                # Draw head white dot
+                hx_s = int(snake.head[0] - cam_x)
+                hy_s = int(snake.head[1] - cam_y)
+                if -20 < hx_s < GAME_W + 20 and -20 < hy_s < GAME_H + 20:
+                    pygame.draw.circle(self._screen, (255, 255, 255),
+                                     (hx_s, hy_s), max(3, int(snake.radius * 0.5)))
+        else:
+            # Dead screen
+            text = self._hud_font_lg.render('DEAD — waiting for reset', True, (255, 80, 80))
+            self._screen.blit(text, (GAME_W // 2 - text.get_width() // 2, GAME_H // 2))
+
+        # ── HUD Panel ──
+        hud_x = GAME_W
+        pygame.draw.rect(self._screen, (30, 30, 35), (hud_x, 0, HUD_W, GAME_H))
+        pygame.draw.line(self._screen, (60, 60, 70), (hud_x, 0), (hud_x, GAME_H), 2)
+
+        y = 8
+        def hud_text(label, value, color=(200, 200, 200)):
+            nonlocal y
+            surf = self._hud_font_sm.render(label, True, (120, 120, 130))
+            self._screen.blit(surf, (hud_x + 8, y))
+            surf2 = self._hud_font.render(str(value), True, color)
+            self._screen.blit(surf2, (hud_x + 8, y + 13))
+            y += 32
+
+        def hud_separator():
+            nonlocal y
+            pygame.draw.line(self._screen, (50, 50, 60),
+                           (hud_x + 8, y), (hud_x + HUD_W - 8, y))
+            y += 6
+
+        # ── Action ──
+        steering = float(self._last_action[0])
+        boost = float(self._last_action[1])
+        steer_str = f'{steering:+.3f}'
+        if steering > 0.1:
+            steer_str += ' →'
+        elif steering < -0.1:
+            steer_str += ' ←'
+        else:
+            steer_str += ' ↑'
+        hud_text('STEERING', steer_str, (80, 200, 255))
+
+        boost_on = boost > 0.5
+        boost_color = (255, 100, 100) if boost_on else (100, 255, 100)
+        boost_label = 'ON' if boost_on else 'OFF'
+        hud_text('BOOST', f'{boost_label} ({boost:.2f})', boost_color)
+
+        hud_separator()
+
+        # ── Reward ──
+        r = self._last_reward
+        r_color = (100, 255, 100) if r > 0 else (255, 100, 100) if r < -0.5 else (200, 200, 200)
+        hud_text('REWARD', f'{r:+.4f}', r_color)
+        hud_text('CUMULATIVE', f'{self._cumulative_reward:+.2f}',
+                (100, 255, 100) if self._cumulative_reward > 0 else (255, 100, 100))
+
+        hud_separator()
+
+        # ── Stats ──
+        hud_text('MASS', f'{self.player.mass:.0f} (peak {self.peak_mass:.0f})', (255, 220, 100))
+        hud_text('KILLS', f'{self.player.kills}', (255, 80, 80))
+        hud_text('FOOD EATEN', f'{self.food_eaten}', (100, 255, 100))
+        hud_text('STEP', f'{self.step_count} / {self.max_steps}', (180, 180, 180))
+        boost_pct = self.boost_frames / max(self.step_count, 1) * 100
+        hud_text('BOOST %', f'{boost_pct:.1f}%', (200, 150, 255))
+        hud_text('STATUS', self.death_cause,
+                (100, 255, 100) if self.death_cause == 'alive' else (255, 80, 80))
+
+        hud_separator()
+
+        # ── Observation channel previews ──
+        if self._last_obs is not None:
+            obs_map = self._last_obs['map']  # (5, 84, 84)
+            labels = ['Self', 'Enemy', 'Food', 'Bound', 'Vel']
+            tints = [
+                (0, 200, 255), (255, 80, 80), (80, 255, 80),
+                (255, 200, 50), (255, 100, 255),
+            ]
+            preview_size = 38
+            cols = 5
+            total_w = cols * (preview_size + 3) - 3
+            start_x = hud_x + (HUD_W - total_w) // 2
+
+            label_surf = self._hud_font_sm.render('CNN OBSERVATION', True, (120, 120, 130))
+            self._screen.blit(label_surf, (hud_x + 8, y))
+            y += 16
+
+            for i in range(5):
+                channel = obs_map[i]
+                rgb = np.zeros((obs_module.MAP_SIZE, obs_module.MAP_SIZE, 3), dtype=np.uint8)
+                for c in range(3):
+                    rgb[:, :, c] = (channel * tints[i][c]).clip(0, 255).astype(np.uint8)
+                surf = pygame.surfarray.make_surface(rgb.transpose(1, 0, 2))
+                surf = pygame.transform.scale(surf, (preview_size, preview_size))
+                px = start_x + i * (preview_size + 3)
+                self._screen.blit(surf, (px, y))
+                # Label below
+                lbl = self._hud_font_sm.render(labels[i], True, (140, 140, 150))
+                lbl_x = px + (preview_size - lbl.get_width()) // 2
+                self._screen.blit(lbl, (lbl_x, y + preview_size + 1))
+
         pygame.display.flip()
         self._clock.tick(60)
 
@@ -462,6 +599,58 @@ class SlitherEnv(gymnasium.Env):
             import pygame
             pygame.quit()
             self._screen = None
+
+    def render_to_array(self, width=400, height=300):
+        """Offscreen render to numpy array (H, W, 3) for video recording."""
+        import pygame
+        if not pygame.get_init():
+            pygame.init()
+        surface = pygame.Surface((width, height))
+        surface.fill((20, 20, 20))
+        if not self.player.dead:
+            cam_x = self.player.head[0] - width // 2
+            cam_y = self.player.head[1] - height // 2
+
+            # World boundary
+            cx_s, cy_s = int(-cam_x), int(-cam_y)
+            pygame.draw.circle(surface, (60, 30, 30), (cx_s, cy_s),
+                             int(self.world_radius), 2)
+
+            for food in self.foods:
+                fx, fy = int(food.x - cam_x), int(food.y - cam_y)
+                if 0 <= fx < width and 0 <= fy < height:
+                    color = (100, 255, 100) if food.value <= 1 else (255, 200, 50)
+                    pygame.draw.circle(surface, color, (fx, fy),
+                                     max(2, int(food.radius * 0.6)))
+            for snake in self.snakes:
+                if snake.dead:
+                    continue
+                color = (0, 200, 255) if snake.is_player else snake.color
+                for seg in snake.segments:
+                    sx, sy = int(seg[0] - cam_x), int(seg[1] - cam_y)
+                    if -20 < sx < width + 20 and -20 < sy < height + 20:
+                        pygame.draw.circle(surface, color, (sx, sy),
+                                         max(2, int(snake.radius * 0.8)))
+                hx_s = int(snake.head[0] - cam_x)
+                hy_s = int(snake.head[1] - cam_y)
+                if -20 < hx_s < width + 20 and -20 < hy_s < height + 20:
+                    pygame.draw.circle(surface, (255, 255, 255),
+                                     (hx_s, hy_s), max(3, int(snake.radius * 0.5)))
+
+            # Overlay: mass + kills
+            font = pygame.font.SysFont(None, 22)
+            info_text = f'Mass:{self.player.mass:.0f}  Kills:{self.player.kills}  Food:{self.food_eaten}  Step:{self.step_count}'
+            text_surf = font.render(info_text, True, (220, 220, 220))
+            surface.blit(text_surf, (5, 5))
+        else:
+            font = pygame.font.SysFont(None, 28)
+            text_surf = font.render('DEAD', True, (255, 80, 80))
+            surface.blit(text_surf, (width // 2 - 25, height // 2))
+
+        # Convert to numpy
+        arr = pygame.surfarray.array3d(surface)  # (W, H, 3)
+        arr = arr.transpose(1, 0, 2)  # (H, W, 3)
+        return arr
 
 
 if __name__ == '__main__':
