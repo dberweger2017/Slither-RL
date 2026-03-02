@@ -248,10 +248,12 @@ class SelfPlayCallback(BaseCallback):
                 np.stack(frames)).permute(0, 3, 1, 2).unsqueeze(0)
 
             writer = None
-            if hasattr(self.logger, 'writer'):
-                writer = self.logger.writer
-            elif hasattr(self.logger, '_logger'):
-                writer = getattr(self.logger._logger, 'writer', None)
+            if hasattr(self.logger, 'output_formats'):
+                from stable_baselines3.common.logger import TensorBoardOutputFormat
+                for fmt in self.logger.output_formats:
+                    if isinstance(fmt, TensorBoardOutputFormat):
+                        writer = fmt.writer
+                        break
 
             if writer is not None:
                 writer.add_video(
