@@ -107,7 +107,16 @@ class SelfPlayCallback(BaseCallback):
         self.ep_boost_pct = []
         self.ep_wall_close_pct = []
         self.ep_lengths = []
+        self.ep_time_to_100 = []
+        self.ep_safe_space = []
         self.death_causes = {'collision': 0, 'wall': 0, 'survived': 0}
+
+        # Reward breakdown tracking
+        self.ep_time_penalty = []
+        self.ep_food_reward = []
+        self.ep_boost_penalty = []
+        self.ep_kill_reward = []
+        self.ep_proximity_reward = []
 
     def _on_training_start(self):
         self.start_time = time.time()
@@ -134,6 +143,16 @@ class SelfPlayCallback(BaseCallback):
             self.ep_mass_per_frame.append(info.get('mass_per_frame', 0))
             self.ep_boost_pct.append(info.get('boost_pct', 0))
             self.ep_wall_close_pct.append(info.get('wall_close_pct', 0))
+            self.ep_safe_space.append(info.get('safe_space_pct', 0))
+            if info.get('time_to_100_mass') is not None:
+                self.ep_time_to_100.append(info.get('time_to_100_mass'))
+
+            # Store reward breakdown
+            self.ep_time_penalty.append(info.get('time_penalty', 0))
+            self.ep_food_reward.append(info.get('food_reward', 0))
+            self.ep_boost_penalty.append(info.get('boost_penalty', 0))
+            self.ep_kill_reward.append(info.get('kill_reward', 0))
+            self.ep_proximity_reward.append(info.get('proximity_reward', 0))
 
             dc = info.get('death_cause', 'collision')
             if dc in self.death_causes:
@@ -153,6 +172,10 @@ class SelfPlayCallback(BaseCallback):
                 self.logger.record("slither/food_eaten_mean", np.mean(self.ep_food_eaten[-n:]))
                 self.logger.record("slither/boost_pct", np.mean(self.ep_boost_pct[-n:]))
                 self.logger.record("slither/wall_close_pct", np.mean(self.ep_wall_close_pct[-n:]))
+                self.logger.record("slither/safe_space_pct", np.mean(self.ep_safe_space[-n:]))
+                if self.ep_time_to_100:
+                    n_time = min(100, len(self.ep_time_to_100))
+                    self.logger.record("slither/time_to_100_mass", np.mean(self.ep_time_to_100[-n_time:]))
                 total_dc = sum(self.death_causes.values()) or 1
                 self.logger.record("slither/death_collision_pct",
                                   self.death_causes['collision'] / total_dc)
@@ -182,6 +205,25 @@ class SelfPlayCallback(BaseCallback):
                       f"Deaths: collision={self.death_causes['collision']}, "
                       f"wall={self.death_causes['wall']}, "
                       f"survived={self.death_causes['survived']}")
+                
+                # Reward breakdown print
+                avg_food = np.mean(self.ep_food_reward[-n:])
+                avg_kill = np.mean(self.ep_kill_reward[-n:])
+                avg_prox = np.mean(self.ep_proximity_reward[-n:])
+                avg_time_pen = np.mean(self.ep_time_penalty[-n:])
+                avg_boost_pen = np.mean(self.ep_boost_penalty[-n:])
+                
+                print(f"   Reward breakdown: Food: {avg_food:+.2f} | Kills: {avg_kill:+.2f} | Prox: {avg_prox:+.2f}")
+                print(f"   Penalty breakdown: Death/Time: {avg_time_pen:+.2f} | Boost: {avg_boost_pen:+.2f}")
+
+                avg_time_100 = np.mean(self.ep_time_to_100[-100:]) if self.ep_time_to_100 else 0
+                print(f"   Metrics: Safe Space: {np.mean(self.ep_safe_space[-n:])*100:.1f}% | Time to 100 Mass: {avg_time_100:.0f} steps")
+
+                # Progress to next video
+                if self.record_every > 0:
+                    steps_since_record = self.num_timesteps - self.last_record_episode
+                    progress_pct = (steps_since_record / self.record_every) * 100
+                    print(f"   Next Video Progress: {progress_pct:.1f}% ({steps_since_record:,}/{self.record_every:,} steps)")
 
             # Checkpoint
             if self.episode_count - self.last_save_episode >= self.save_every:
@@ -305,7 +347,7 @@ def main():
     def make_env(rank):
         def _init():
             render_mode = 'human' if (args.render and rank == 0) else None
-            num_scripted = 20 if args.stage >= 2 else 0
+            num_scripted = 10 if args.stage >= 2 else 0
             num_selfplay = 6 if args.stage == 3 else 0
             return SlitherEnv(num_scripted=num_scripted, num_selfplay=num_selfplay, render_mode=render_mode)
         return _init
@@ -324,7 +366,7 @@ def main():
     arch_name = "RecurrentPPO (LSTM)" if use_lstm else "PPO (Feedforward)"
 
     custom_objects = {
-        "learning_rate": 5e-5,
+        "learning_rate": 1e-4,
         "clip_range": 0.2,
     }
 
@@ -365,7 +407,7 @@ def main():
             model = RecurrentPPO(
                 policy_name, env,
                 policy_kwargs=policy_kwargs,
-                learning_rate=5e-5,
+                learning_rate=1e-4,
                 n_steps=2048,
                 batch_size=1024,
                 n_epochs=10,
@@ -383,7 +425,7 @@ def main():
             model = PPO(
                 policy_name, env,
                 policy_kwargs=policy_kwargs,
-                learning_rate=5e-5,
+                learning_rate=1e-4,
                 target_kl=0.015,
                 n_steps=8192,
                 batch_size=1024,
@@ -402,7 +444,7 @@ def main():
 
     total_params = sum(p.numel() for p in model.policy.parameters())
     print(f"🧠 Model parameters: {total_params:,}")
-    num_scripted = 20 if args.stage >= 2 else 0
+    num_scripted = 10 if args.stage >= 2 else 0
     num_selfplay = 6 if args.stage == 3 else 0
     print(f"🏗️  Architecture: {arch_name}")
     print(f"🎮 Environment: {env.num_envs}x (1 agent + {num_scripted} scripted + {num_selfplay} self-play = {1 + num_scripted + num_selfplay} snakes)")

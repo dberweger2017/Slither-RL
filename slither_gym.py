@@ -157,6 +157,8 @@ class SlitherEnv(gymnasium.Env):
         self.boost_frames = 0
         self.wall_close_frames = 0
         self.death_cause = 'alive'
+        self.time_to_100_mass = None
+        self.safe_space_frames = 0
 
         # Debug HUD state
         self._last_action = np.array([0.0, 0.0])
@@ -382,7 +384,15 @@ class SlitherEnv(gymnasium.Env):
             if wall_dist < 200:
                 self.wall_close_frames += 1
 
-        reward = self._compute_reward()
+            if self.time_to_100_mass is None and self.player.mass >= 100:
+                self.time_to_100_mass = self.step_count
+
+            nearby_bots = self.segment_grid.query(self.player.head[0], self.player.head[1], 500)
+            bots_found = sum(1 for (owner, seg) in nearby_bots if owner is not self.player)
+            if bots_found == 0:
+                self.safe_space_frames += 1
+
+        reward, reward_breakdown = self._compute_reward()
         terminated = self.player.dead
         truncated = self.step_count >= self.max_steps
 
@@ -410,29 +420,63 @@ class SlitherEnv(gymnasium.Env):
             'boost_pct': self.boost_frames / max(self.step_count, 1),
             'wall_close_pct': self.wall_close_frames / max(self.step_count, 1),
             'death_cause': self.death_cause,
+            'time_to_100_mass': self.time_to_100_mass,
+            'safe_space_pct': self.safe_space_frames / max(self.step_count, 1),
+            **reward_breakdown
         }
         self.prev_mass = self.player.mass
         return obs, reward, terminated, truncated, info
 
     def _compute_reward(self):
+        reward_breakdown = {
+            'time_penalty': 0.0,
+            'food_reward': 0.0,
+            'boost_penalty': 0.0,
+            'kill_reward': 0.0,
+            'proximity_reward': 0.0,
+        }
+
+        if self.player.dead:
+            # Change 3: Early death penalty
+            time_penalty = max(0, 1.0 - (self.step_count / self.max_steps))
+            penalty = -10.0 - (20.0 * time_penalty)
+            reward_breakdown['time_penalty'] = penalty
+            return penalty, reward_breakdown
+
         reward = 0.0
         mass_diff = self.player.mass - self.prev_mass
+        
+        # Change 1 & 2: Balanced Eating vs. Boosting
         if mass_diff > 0:
-            # Major incentive to eat food
-            reward += mass_diff / 5.0
+            food_rew = mass_diff / 5.0
+            reward += food_rew
+            reward_breakdown['food_reward'] = food_rew
         else:
-            # Near-free boosting to encourage hunting
-            reward += mass_diff / 100.0
+            boost_pen = mass_diff / 20.0  # Increased cost from / 100.0
+            reward += boost_pen
+            reward_breakdown['boost_penalty'] = boost_pen
+            
         if self.pending_kill_mass > 0:
-            reward += self.pending_kill_mass / 1.0
-        # Neutral survival — no reward or penalty for existing
-        if self.player.dead:
-            return -10.0
-        dist_to_wall = self.world_radius - math.hypot(
-            self.player.head[0], self.player.head[1])
-        if dist_to_wall < 200:
-            reward -= 0.1 * (1.0 - dist_to_wall / 200.0)
-        return reward
+            kill_rew = self.pending_kill_mass / 1.0
+            reward += kill_rew
+            reward_breakdown['kill_reward'] = kill_rew
+
+        # Change 5: Proximity Incentive
+        # Query segment grid for heads within 300 units
+        if self.player.mass > 100:
+            nearby = self.segment_grid.query(self.player.head[0], self.player.head[1], 300)
+            heads_found = 0
+            for (owner, seg) in nearby:
+                # Check if the segment is a head (index 0) and not the player
+                if owner is not self.player and len(owner.segments) > 0 and seg == owner.segments[0]:
+                    heads_found += 1
+            
+            prox_rew = (heads_found * 0.002) # Tiny incentive to stay in the action
+            reward += prox_rew
+            reward_breakdown['proximity_reward'] = prox_rew
+
+        # Change 4: Removed wall babying
+        return reward, reward_breakdown
 
     def _explode_snake(self, snake):
         cx = sum(s[0] for s in snake.segments) / len(snake.segments)
