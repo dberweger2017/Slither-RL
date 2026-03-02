@@ -6,7 +6,7 @@ A complete Gymnasium environment, Python physics engine, and Stable Baselines 3 
 
 ## 1. Features 🌟
 
-- **Recurrent PPO (LSTM):** Core architecture uses an LSTM hidden state (128-step BPTT) to learn multi-step hunting strategies, coiling, and momentum.
+- **Recurrent PPO (LSTM):** Core architecture uses an LSTM hidden state (512-step BPTT) to learn multi-step hunting strategies, coiling, and momentum.
 - **Gladiator Reward Tuning:** Aggressive reward function that heavily incentivizes kills (5x food value) and makes boosting nearly free to encourage hunting, while remaining neutral on survival time to prevent passive foraging.
 - **Modernized Vision:** 3x3 kernel CNN architecture applied to 5-channel egocentric observations with glowing (3px radius) food orbs to solve resolution-kernel mismatch.
 - **Smart Scripted Bots:** 9 distinct algorithmic bot personalities (Bullies, Hunters, Foragers, Interceptors, etc.) that use spatial hashing to dodge bodies and fight intelligently.
@@ -103,6 +103,6 @@ python3 -m http.server 8080     # host it locally
 
 - **Observation CNN:** 5-channel 84×84 ego-centric mini-map (Self, Enemies, Food, Boundary, Velocity Streaks) → processed by three 3x3 Conv2d layers.
 - **Proprioception MLP:** 8-float vector (mass, turn rate, speed, boost state, wall distance, etc.).
-- **Memory (LSTM):** 256-dim hidden state, `n_steps=128`, tracking short-term maneuvers and persistent threats.
+- **Memory (LSTM):** 256-dim hidden state, `n_steps=512`, tracking short-term maneuvers and persistent threats.
 - **Policy:** RecurrentPPO (sb3-contrib) → 2 continuous outputs (steering [-1, 1], boost [0, 1]).
 - **Hardware:** Auto-detects Apple Silicon (MPS), NVIDIA (CUDA), or CPU.
