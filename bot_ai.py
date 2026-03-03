@@ -127,6 +127,52 @@ def nearest_threat(snake, snakes, radius=150):
     return best, best_dist
 
 
+def _nearest_live_enemies(snake, snakes, k=6, max_dist=900):
+    """Return up to k closest living opponents for local safety prediction."""
+    nearby = []
+    sx, sy = snake.head
+    for other in snakes:
+        if other is snake or other.dead:
+            continue
+        d = math.hypot(other.head[0] - sx, other.head[1] - sy)
+        if d < max_dist:
+            nearby.append((d, other))
+    nearby.sort(key=lambda x: x[0])
+    return [other for _, other in nearby[:k]]
+
+
+def find_fight_hotspot(snake, snakes, max_pair_dist=220, max_my_dist=900):
+    """
+    Detect nearby fight hotspots (two heads close together).
+    Returns (x, y, my_dist, score) or None.
+    """
+    best = None
+    best_score = -1.0
+    for i, s1 in enumerate(snakes):
+        if s1 is snake or s1.dead:
+            continue
+        for s2 in snakes[i + 1:]:
+            if s2 is snake or s2.dead:
+                continue
+            pair_d = math.hypot(s1.head[0] - s2.head[0], s1.head[1] - s2.head[1])
+            if pair_d > max_pair_dist:
+                continue
+            mx = (s1.head[0] + s2.head[0]) * 0.5
+            my = (s1.head[1] + s2.head[1]) * 0.5
+            my_d = math.hypot(mx - snake.head[0], my - snake.head[1])
+            if my_d > max_my_dist:
+                continue
+
+            # Favor bigger nearby fights; distance and pair tightness matter.
+            mass_term = min(s1.mass, s2.mass)
+            tightness = (max_pair_dist - pair_d) / max_pair_dist
+            score = (mass_term / (my_d + 90.0)) + 0.45 * tightness
+            if score > best_score:
+                best_score = score
+                best = (mx, my, my_d, score)
+    return best
+
+
 def dodge_bodies(snake, snakes, segment_grid, radius=100):
     """Scan for enemy body segments in a forward cone and return a dodge angle.
     Returns (dodge_angle, danger_dist) or (None, inf)."""
@@ -242,7 +288,8 @@ def _step_pose_toward(x, y, angle, target_angle, turn_rate, speed):
 
 
 def _predict_heading_clearance(snake, target_angle, snakes, world_size,
-                               segment_grid=None, steps=12, boost=False):
+                               segment_grid=None, steps=12, boost=False,
+                               near_enemies=None):
     """
     Simulate a short horizon and return minimum clearance.
     Negative large value means high collision risk.
@@ -253,6 +300,10 @@ def _predict_heading_clearance(snake, target_angle, snakes, world_size,
         speed *= 2.0
     elif (not boost) and snake.is_boosting:
         speed *= 0.5
+
+    if near_enemies is None:
+        near_enemies = _nearest_live_enemies(snake, snakes, k=7, max_dist=960)
+    near_set = set(near_enemies)
 
     x, y = snake.head[0], snake.head[1]
     angle = snake.angle
@@ -274,14 +325,12 @@ def _predict_heading_clearance(snake, target_angle, snakes, world_size,
             seg_iter = nearby
         else:
             seg_iter = []
-            for s in snakes:
-                if s is snake or s.dead:
-                    continue
+            for s in near_enemies:
                 for seg in s.segments[3:]:
                     seg_iter.append((s, seg))
 
         for owner, seg in seg_iter:
-            if owner is snake or owner.dead:
+            if owner.dead or owner not in near_set:
                 continue
             clear = math.hypot(seg[0] - x, seg[1] - y) - (owner.radius * 0.8 + snake.radius * 0.75)
             min_clear = min(min_clear, clear)
@@ -289,9 +338,7 @@ def _predict_heading_clearance(snake, target_angle, snakes, world_size,
                 return -1e6
 
         # Opponent head prediction catches side/head cuts.
-        for other in snakes:
-            if other is snake or other.dead:
-                continue
+        for other in near_enemies:
             ov = other.get_speed()
             ox = other.head[0] + math.cos(other.angle) * ov * t
             oy = other.head[1] + math.sin(other.angle) * ov * t
@@ -329,6 +376,8 @@ def _pick_safer_heading(snake, desired_angle, desired_boost, snakes, world_size,
     best_score = -1e9
     seen = set()
 
+    near_enemies = _nearest_live_enemies(snake, snakes, k=7, max_dist=980)
+
     for angle, boost in candidates:
         key = (int(angle * 100), int(boost))
         if key in seen:
@@ -336,7 +385,8 @@ def _pick_safer_heading(snake, desired_angle, desired_boost, snakes, world_size,
         seen.add(key)
 
         clear = _predict_heading_clearance(
-            snake, angle, snakes, world_size, segment_grid=segment_grid, steps=16, boost=boost
+            snake, angle, snakes, world_size, segment_grid=segment_grid, steps=14, boost=boost,
+            near_enemies=near_enemies,
         )
         turn_cost = abs(_angle_diff(angle, desired_angle))
         boost_penalty = 6.0 if boost and clear < 20.0 else 0.0
@@ -464,13 +514,15 @@ def _plan_food_graph_target(snake, foods, snakes, world_size, segment_grid=None)
 
     speed = max(0.1, snake.get_speed())
     turn_rate = max(1e-3, _turn_rate_estimate(snake))
+    near_enemies = _nearest_live_enemies(snake, snakes, k=7, max_dist=980)
     best = None
     best_score = -1e9
 
     for i, node in enumerate(nodes):
         desired = _food_approach_angle(snake, node["x"], node["y"])
         clear = _predict_heading_clearance(
-            snake, desired, snakes, world_size, segment_grid=segment_grid, steps=16, boost=False
+            snake, desired, snakes, world_size, segment_grid=segment_grid, steps=14, boost=False,
+            near_enemies=near_enemies,
         )
         if clear < 6.0:
             continue
@@ -526,6 +578,232 @@ def _plan_food_graph_target(snake, foods, snakes, world_size, segment_grid=None)
                 "y": node["y"],
                 "boost": boost,
                 "lock_frames": 16 if node["cluster_count"] >= 6 else 10,
+            }
+
+    return best
+
+
+def _preselect_foods_for_mpc(snake, foods, max_dist=1200, max_count=80):
+    """Keep only the most relevant nearby food for MPC scoring."""
+    sx, sy = snake.head
+    scored = []
+    for idx, f in enumerate(foods):
+        dx = f.x - sx
+        dy = f.y - sy
+        d = math.hypot(dx, dy)
+        if d <= 3 or d >= max_dist:
+            continue
+        heading = math.atan2(dy, dx)
+        turn = abs(_angle_diff(heading, snake.angle))
+        score = (f.value + 0.35) / (d + 35.0 + 45.0 * turn)
+        scored.append((score, idx, f))
+    if not scored:
+        return []
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [(idx, f) for _, idx, f in scored[:max_count]]
+
+
+def _simulate_harvest_candidate(snake, snakes, world_size, segment_grid, food_candidates,
+                                target_angle, boost=False, horizon=16,
+                                near_enemies=None):
+    """
+    Roll out one short trajectory and score it by
+    expected food intake - risk - boost/maneuver cost.
+    """
+    turn_rate = _turn_rate_estimate(snake)
+    speed = snake.get_speed()
+    if boost and not snake.is_boosting:
+        speed *= 2.0
+    elif (not boost) and snake.is_boosting:
+        speed *= 0.5
+    if near_enemies is None:
+        near_enemies = _nearest_live_enemies(snake, snakes, k=7, max_dist=980)
+    near_set = set(near_enemies)
+
+    x, y = snake.head[0], snake.head[1]
+    angle = snake.angle
+    eaten = set()
+    food_gain = 0.0
+    risk = 0.0
+    nearest_wall = float('inf')
+    nearest_body = float('inf')
+    nearest_head = float('inf')
+
+    body_probe_r = max(42.0, snake.radius * 1.55 + 12.0)
+    collect_r_pad = max(4.0, snake.radius * 0.15)
+
+    for t in range(1, horizon + 1):
+        x, y, angle = _step_pose_toward(x, y, angle, target_angle, turn_rate, speed)
+
+        wall_clear = world_size - math.hypot(x, y)
+        nearest_wall = min(nearest_wall, wall_clear)
+        if wall_clear < snake.radius * 0.85 + 8.0:
+            return -1e6
+        if wall_clear < 95.0:
+            risk += (95.0 - wall_clear) * 0.07
+
+        if segment_grid is not None:
+            nearby = segment_grid.query(x, y, body_probe_r)
+        else:
+            nearby = []
+            for s in near_enemies:
+                for seg in s.segments[3:]:
+                    nearby.append((s, seg))
+
+        closest_body_t = float('inf')
+        for owner, seg in nearby:
+            if owner.dead or owner not in near_set:
+                continue
+            clear = math.hypot(seg[0] - x, seg[1] - y) - (owner.radius * 0.8 + snake.radius * 0.8)
+            nearest_body = min(nearest_body, clear)
+            closest_body_t = min(closest_body_t, clear)
+            if clear < 0:
+                return -1e6
+        if closest_body_t < 64.0:
+            risk += (64.0 - closest_body_t) * 0.09
+
+        closest_head_t = float('inf')
+        for other in near_enemies:
+            ov = other.get_speed()
+            ox = other.head[0] + math.cos(other.angle) * ov * t
+            oy = other.head[1] + math.sin(other.angle) * ov * t
+            clear_h = math.hypot(ox - x, oy - y) - (other.radius + snake.radius + 8.0)
+            nearest_head = min(nearest_head, clear_h)
+            closest_head_t = min(closest_head_t, clear_h)
+            if clear_h < 0:
+                return -1e6
+        if closest_head_t < 95.0:
+            risk += (95.0 - closest_head_t) * 0.05
+
+        for idx, f in food_candidates:
+            if idx in eaten:
+                continue
+            d = math.hypot(f.x - x, f.y - y)
+            collect_r = snake.radius + getattr(f, "radius", 4.0) + collect_r_pad
+            if d < collect_r:
+                eaten.add(idx)
+                food_gain += f.value * 6.2
+            elif d < 130.0:
+                food_gain += 0.05 * f.value * (1.0 - d / 130.0)
+
+    endpoint_gain = 0.0
+    for idx, f in food_candidates:
+        if idx in eaten:
+            continue
+        d = math.hypot(f.x - x, f.y - y)
+        if d < 280.0:
+            endpoint_gain += f.value * (1.0 - d / 280.0) * 0.3
+
+    turn_cost = abs(_angle_diff(target_angle, snake.angle)) * 2.2
+    boost_cost = 0.0
+    if boost:
+        boost_cost = horizon * max(0.5, snake.mass * 0.001) * 0.65
+
+    safety_bonus = 0.0
+    if nearest_wall > 180.0:
+        safety_bonus += 0.6
+    if nearest_body > 85.0 and nearest_head > 130.0:
+        safety_bonus += 0.5
+
+    return food_gain + endpoint_gain + safety_bonus - risk - turn_cost - boost_cost
+
+
+def _heading_route_value(snake, food_candidates, heading):
+    """Projected value along a heading corridor for boost ROI checks."""
+    total = 0.0
+    sx, sy = snake.head
+    for _, f in food_candidates:
+        dx = f.x - sx
+        dy = f.y - sy
+        d = math.hypot(dx, dy)
+        if d < 90.0 or d > 1000.0:
+            continue
+        a = math.atan2(dy, dx)
+        if abs(_angle_diff(a, heading)) < 0.5:
+            total += f.value * (1.0 - d / 1000.0)
+    return total
+
+
+def _mpc_harvest_action(snake, foods, snakes, world_size, segment_grid=None,
+                        preferred_target=None):
+    """
+    MPC-style planner:
+    sample headings, simulate short trajectories, and pick best first action.
+    """
+    food_candidates = _preselect_foods_for_mpc(snake, foods, max_dist=1200, max_count=56)
+    if not food_candidates:
+        return None
+    near_enemies = _nearest_live_enemies(snake, snakes, k=7, max_dist=980)
+
+    entries = []
+    coarse_offsets = [0.0, 0.25, -0.25, 0.52, -0.52, 0.9, -0.9]
+    for off in coarse_offsets:
+        entries.append({
+            "angle": snake.angle + off,
+            "target": None,
+            "intrinsic": 0.0,
+            "lock_frames": 0,
+        })
+
+    for idx, f in food_candidates[:10]:
+        d = math.hypot(f.x - snake.head[0], f.y - snake.head[1])
+        entries.append({
+            "angle": _food_approach_angle(snake, f.x, f.y),
+            "target": (f.x, f.y),
+            "intrinsic": f.value / (d + 25.0),
+            "lock_frames": 8 if d < 220.0 else 12,
+        })
+
+    if preferred_target is not None:
+        px, py, p_lock = preferred_target
+        pd = math.hypot(px - snake.head[0], py - snake.head[1])
+        entries.append({
+            "angle": _food_approach_angle(snake, px, py),
+            "target": (px, py),
+            "intrinsic": 1.2 / (pd + 40.0),
+            "lock_frames": p_lock,
+        })
+
+    seen = set()
+    deduped = []
+    for e in entries:
+        key = int(e["angle"] * 20.0)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(e)
+
+    best = None
+    best_score = -1e9
+    for e in deduped:
+        a = e["angle"]
+        base_score = _simulate_harvest_candidate(
+            snake, snakes, world_size, segment_grid, food_candidates, a,
+            boost=False, horizon=14, near_enemies=near_enemies,
+        )
+        score = base_score + e["intrinsic"]
+        use_boost = False
+
+        corridor_value = _heading_route_value(snake, food_candidates, a)
+        boost_candidate = snake.mass > 80 and corridor_value > 4.2
+        if boost_candidate:
+            boost_score = _simulate_harvest_candidate(
+                snake, snakes, world_size, segment_grid, food_candidates, a,
+                boost=True, horizon=12, near_enemies=near_enemies,
+            ) + e["intrinsic"] + 0.2
+            # Boost only when route ROI is clearly better.
+            if boost_score > score + 0.35:
+                score = boost_score
+                use_boost = True
+
+        if score > best_score:
+            best_score = score
+            best = {
+                "angle": a,
+                "boost": use_boost,
+                "target": e["target"],
+                "lock_frames": e["lock_frames"],
+                "score": score,
             }
 
     return best
@@ -745,13 +1023,14 @@ def ai_scavenger(snake, foods, snakes, world_size, segment_grid=None):
 
 def ai_harvester(snake, foods, snakes, world_size, segment_grid=None):
     """
-    Harvester: Safe food-maximizer.
-    - Grabs immediate nearby orbs.
-    - Prefers rich food patches nearby.
-    - Sprints for big drops.
-    - Avoids fights, with occasional low-frequency encircle of tiny prey.
+    Harvester++: phase-driven food/loot optimizer.
+    Uses safety filters, fight-loot opportunism, and MPC food routing.
     """
     wall_angle, wall_urg = avoid_walls(snake, world_size)
+    snake._ai_phase = "init"
+
+    def set_phase(name):
+        snake._ai_phase = name
 
     def commit_heading(desired_angle, boost=False):
         base_angle = desired_angle
@@ -762,7 +1041,7 @@ def ai_harvester(snake, foods, snakes, world_size, segment_grid=None):
             segment_grid=segment_grid, wall_angle=wall_angle, wall_urg=wall_urg
         )
         snake.target_angle = chosen_angle
-        snake.is_boosting = bool(boost and chosen_boost and clear > 12.0)
+        snake.is_boosting = bool(boost and chosen_boost and clear > 8.0)
         return clear
 
     def commit_food_target(target_x, target_y, boost=False, lock_frames=0):
@@ -777,7 +1056,7 @@ def ai_harvester(snake, foods, snakes, world_size, segment_grid=None):
             boost = False
         else:
             turn_r = max(35.0, snake.get_speed() / max(_turn_rate_estimate(snake), 1e-4))
-            if (target_dist < turn_r * 1.05 and
+            if (target_dist < turn_r * 1.03 and
                     abs(_angle_diff(desired_angle, snake.angle)) > math.pi * 0.55):
                 side = 1 if _angle_diff(desired_angle, snake.angle) > 0 else -1
                 snake._harvest_realign_timer = random.randint(8, 14)
@@ -786,22 +1065,24 @@ def ai_harvester(snake, foods, snakes, world_size, segment_grid=None):
                 boost = False
 
         commit_heading(desired_angle, boost=boost)
-        if lock_frames > 0:
+        if lock_frames > 0 and target_dist > 65.0:
             snake._harvest_lock = (target_x, target_y, lock_frames)
 
-    if wall_urg > 0.75:
+    # Phase 1: survival
+    if wall_urg > 0.80:
+        set_phase("wall_flee")
         commit_heading(wall_angle, boost=wall_urg > 0.9)
         return
 
-    # Immediate body danger always has top priority.
-    dodge, d_dist = dodge_bodies(snake, snakes, segment_grid, radius=130)
-    if dodge is not None and d_dist < 85:
-        commit_heading(dodge, boost=d_dist < 50)
+    dodge, d_dist = dodge_bodies(snake, snakes, segment_grid, radius=122)
+    if dodge is not None and d_dist < 76:
+        set_phase("body_dodge")
+        commit_heading(dodge, boost=d_dist < 44)
         return
 
-    # Stay alive: flee from larger closing threats.
-    threat, t_dist = nearest_threat(snake, snakes, radius=280)
-    if threat and (threat.mass > snake.mass * 1.05 or t_dist < 70):
+    threat, t_dist = nearest_threat(snake, snakes, radius=240)
+    if threat and ((threat.mass > snake.mass * 1.40 and t_dist < 190) or t_dist < 56):
+        set_phase("threat_flee")
         dx = snake.head[0] - threat.head[0]
         dy = snake.head[1] - threat.head[1]
         tvx = math.cos(threat.angle) * threat.get_speed()
@@ -810,30 +1091,114 @@ def ai_harvester(snake, foods, snakes, world_size, segment_grid=None):
         flee_y = dy - tvy * 8.0
         commit_heading(
             math.atan2(flee_y, flee_x),
-            boost=(t_dist < 135) or (threat.mass > snake.mass * 1.8)
+            boost=(t_dist < 100) or (threat.mass > snake.mass * 2.4)
         )
         return
 
-    # Continue a short lock to avoid jittering between tiny nearby orbs.
+    # Phase 1b: convert kills into mass quickly (corpse-loot sprint window).
+    prev_kills = getattr(snake, "_harvest_prev_kills", snake.kills)
+    if snake.kills > prev_kills:
+        snake._harvest_post_kill_timer = 90
+    snake._harvest_prev_kills = snake.kills
+    post_kill_timer = getattr(snake, "_harvest_post_kill_timer", 0)
+    if post_kill_timer > 0:
+        snake._harvest_post_kill_timer = post_kill_timer - 1
+        feast = nearest_food(snake, foods, max_dist=760, min_value=2)
+        if feast is not None:
+            set_phase("post_kill_loot")
+            fd = math.hypot(feast.x - snake.head[0], feast.y - snake.head[1])
+            commit_food_target(
+                feast.x, feast.y,
+                boost=(fd > 120 and snake.mass > 70),
+                lock_frames=5,
+            )
+            return
+
+    # Phase 2: high-value death drops first.
+    jackpot = nearest_food(snake, foods, max_dist=760, min_value=3)
+    if jackpot is not None:
+        jd = math.hypot(jackpot.x - snake.head[0], jackpot.y - snake.head[1])
+        ja = math.atan2(jackpot.y - snake.head[1], jackpot.x - snake.head[0])
+        jturn = abs(_angle_diff(ja, snake.angle))
+        cluster_bonus = 0.0
+        cluster_count = 0
+        for f in foods:
+            if math.hypot(f.x - jackpot.x, f.y - jackpot.y) < 125:
+                cluster_bonus += f.value
+                cluster_count += 1
+        drop_score = (jackpot.value + 0.28 * cluster_bonus) / (jd + 45.0 + 28.0 * jturn)
+        chase_drop = (
+            (jd < 220.0 and jackpot.value >= 3) or
+            (cluster_count >= 3 and drop_score > 0.024) or
+            (jackpot.value >= 5 and jd < 560.0 and drop_score > 0.020)
+        )
+        if chase_drop:
+            set_phase("drop_hunt")
+            commit_food_target(
+                jackpot.x, jackpot.y,
+                boost=(190.0 < jd < 760.0 and snake.mass > 78 and (cluster_count >= 4 or jackpot.value >= 5)),
+                lock_frames=6,
+            )
+            return
+
+    # Phase 2b: parasite-like tail shadowing when leader is boosting.
+    lead_boost = None
+    lead_mass = 0.0
+    for s in snakes:
+        if s is snake or s.dead:
+            continue
+        if s.is_boosting and s.mass > lead_mass:
+            lead_boost = s
+            lead_mass = s.mass
+    if lead_boost is not None and lead_boost.mass > snake.mass * 1.12:
+        tail = lead_boost.segments[-1]
+        ld = math.hypot(tail[0] - snake.head[0], tail[1] - snake.head[1])
+        if 160.0 < ld < 1220.0:
+            set_phase("shadow_leader")
+            commit_food_target(
+                tail[0], tail[1],
+                boost=(ld > 340 and snake.mass > 72),
+                lock_frames=6,
+            )
+            return
+
+    # Phase 3: continue lock to avoid target jitter.
     lock = getattr(snake, "_harvest_lock", None)
     if lock is not None:
         lx, ly, lt = lock
         if lt > 0:
             lock_food = _food_near_point(foods, lx, ly, max_dist=120)
             if lock_food is not None:
-                snake._harvest_lock = (lock_food.x, lock_food.y, lt - 1)
-                commit_food_target(lock_food.x, lock_food.y, boost=False, lock_frames=max(0, lt - 1))
-                return
+                lock_dist = math.hypot(lock_food.x - snake.head[0], lock_food.y - snake.head[1])
+                if lock_food.value < 2 and lock_dist > 95.0:
+                    snake._harvest_lock = None
+                    snake._harvest_lock_stall = 0
+                else:
+                    prev_dist = getattr(snake, "_harvest_lock_prev_dist", lock_dist + 1.0)
+                    lock_stall = getattr(snake, "_harvest_lock_stall", 0)
+                    if lock_dist > prev_dist - 1.0:
+                        lock_stall += 1
+                    else:
+                        lock_stall = max(0, lock_stall - 2)
+                    snake._harvest_lock_prev_dist = lock_dist
+                    snake._harvest_lock_stall = lock_stall
+                    if lock_stall > 10:
+                        snake._harvest_lock = None
+                        snake._harvest_lock_stall = 0
+                    else:
+                        set_phase("locked_food")
+                        snake._harvest_lock = (lock_food.x, lock_food.y, lt - 1)
+                        commit_food_target(lock_food.x, lock_food.y, boost=False, lock_frames=max(0, lt - 1))
+                        return
         snake._harvest_lock = None
 
-    # Rare opportunistic containment of very small nearby prey.
-    # Trigger only when we are at least 3x bigger.
+    # Phase 4: rare control/encircle action.
     hunt_cd = getattr(snake, "_harvest_hunt_cooldown", 0)
     if hunt_cd > 0:
         hunt_cd -= 1
     snake._harvest_hunt_cooldown = hunt_cd
 
-    if snake.mass > 210 and hunt_cd <= 0 and random.random() < 0.16:
+    if snake.mass > 220 and hunt_cd <= 0 and random.random() < 0.09:
         best_prey = None
         best_dist = float('inf')
         for s in snakes:
@@ -841,60 +1206,138 @@ def ai_harvester(snake, foods, snakes, world_size, segment_grid=None):
                 continue
             if snake.mass >= s.mass * 3.0:
                 d = math.hypot(s.head[0] - snake.head[0], s.head[1] - snake.head[1])
-                if d < 280 and d < best_dist:
+                if d < 300 and d < best_dist:
                     best_prey = s
                     best_dist = d
         if best_prey is not None:
+            set_phase("encircle_setup")
             angle_to_prey = math.atan2(best_prey.head[1] - snake.head[1],
                                        best_prey.head[0] - snake.head[0])
             side = 1 if _angle_diff(best_prey.angle, angle_to_prey) > 0 else -1
-            offset = math.pi / 2.7 if best_dist < 120 else math.pi / 3.2
-            # Sprint into encircle setup when target is not yet close.
+            offset = math.pi / 2.7 if best_dist < 130 else math.pi / 3.1
             commit_heading(
                 angle_to_prey + side * offset,
-                boost=(best_dist > 120 and snake.mass > 220)
+                boost=(best_dist > 130 and snake.mass > 230)
             )
-            snake._harvest_hunt_cooldown = random.randint(90, 190)
+            snake._harvest_hunt_cooldown = random.randint(100, 200)
             return
 
-    # Priority 1: instant nearby orb pickup.
-    instant_big = nearest_food(snake, foods, max_dist=210, min_value=2)
+    # Phase 5: immediate orb capture.
+    instant_big = nearest_food(snake, foods, max_dist=320, min_value=2)
     if instant_big:
+        set_phase("instant_big")
         bd = math.hypot(instant_big.x - snake.head[0], instant_big.y - snake.head[1])
         commit_food_target(
             instant_big.x, instant_big.y,
-            boost=(instant_big.value >= 3 and bd > 80 and snake.mass > 90),
-            lock_frames=8
+            boost=(instant_big.value >= 4 and bd > 110 and snake.mass > 85),
+            lock_frames=4
         )
         return
 
-    instant_food = nearest_food(snake, foods, max_dist=150)
+    instant_food = nearest_food(snake, foods, max_dist=130)
     if instant_food:
-        commit_food_target(instant_food.x, instant_food.y, boost=False, lock_frames=6)
+        set_phase("instant_food")
+        commit_food_target(instant_food.x, instant_food.y, boost=False, lock_frames=2)
         return
 
-    # Priority 2: graph-planned harvesting route (value density + turn + risk).
+    # Phase 6: imitate top-performing scavenger/parasite behavior.
+    hotspot = find_fight_hotspot(snake, snakes, max_pair_dist=230, max_my_dist=960)
+    if hotspot is not None:
+        hx, hy, hd, hs = hotspot
+        if hs > 0.32 or hd < 520:
+            set_phase("loot_rush")
+            commit_food_target(
+                hx, hy,
+                boost=(hd > 220 and snake.mass > 70),
+                lock_frames=6,
+            )
+            return
+
+    leader = None
+    leader_mass = 0.0
+    for s in snakes:
+        if s is snake or s.dead:
+            continue
+        if s.mass > leader_mass:
+            leader = s
+            leader_mass = s.mass
+    if leader is not None and leader.mass > snake.mass * 1.25:
+        tail = leader.segments[-1]
+        ld = math.hypot(tail[0] - snake.head[0], tail[1] - snake.head[1])
+        if ld < 1100 and (leader.is_boosting or ld < 480):
+            set_phase("shadow_leader")
+            commit_food_target(
+                tail[0], tail[1],
+                boost=(ld > 320 and snake.mass > 82),
+                lock_frames=4,
+            )
+            return
+
+    # Phase 7: forager-like patch sprint.
+    patch, patch_dist, patch_value = best_food_patch(snake, foods, max_dist=1080, top_n=18)
+    if patch is not None and patch_value >= 16.0:
+        px, py = patch
+        set_phase("patch_sprint")
+        commit_food_target(
+            px, py,
+            boost=(patch_dist > 280 and patch_value >= 22.0 and snake.mass > 82),
+            lock_frames=6 if patch_value >= 22.0 else 4,
+        )
+        return
+
+    cluster, cluster_dist = best_food_cluster(snake, foods, max_dist=780, top_n=10)
+    if cluster is not None:
+        set_phase("forager_cluster")
+        commit_food_target(
+            cluster[0], cluster[1],
+            boost=(cluster_dist > 260 and snake.mass > 76),
+            lock_frames=3,
+        )
+        return
+
+    # Phase 8: graph prior + MPC trajectory optimization.
     graph_plan = _plan_food_graph_target(
         snake, foods, snakes, world_size, segment_grid=segment_grid
     )
+    preferred = None
     if graph_plan is not None:
-        commit_food_target(
-            graph_plan["x"], graph_plan["y"],
-            boost=graph_plan["boost"],
-            lock_frames=graph_plan["lock_frames"]
+        preferred = (graph_plan["x"], graph_plan["y"], graph_plan["lock_frames"])
+
+    mpc_action = _mpc_harvest_action(
+        snake, foods, snakes, world_size,
+        segment_grid=segment_grid, preferred_target=preferred
+    )
+    if mpc_action is not None:
+        set_phase("mpc_harvest")
+        mpc_clear = _predict_heading_clearance(
+            snake, mpc_action["angle"], snakes, world_size,
+            segment_grid=segment_grid, steps=14, boost=mpc_action["boost"]
         )
+        if mpc_clear > 14.0:
+            direct_angle = mpc_action["angle"]
+            if wall_angle is not None and wall_urg > 0:
+                direct_angle = _blend_angle(direct_angle, wall_angle, min(0.50, wall_urg))
+            snake.target_angle = direct_angle
+            snake.is_boosting = bool(mpc_action["boost"])
+        else:
+            commit_heading(mpc_action["angle"], boost=mpc_action["boost"])
+        if mpc_action["target"] is not None and mpc_action["lock_frames"] > 0:
+            tx, ty = mpc_action["target"]
+            snake._harvest_lock = (tx, ty, mpc_action["lock_frames"])
         return
 
-    fallback = nearest_food(snake, foods, max_dist=700)
+    # Phase 9: fallback.
+    fallback = nearest_food(snake, foods, max_dist=900)
     if fallback:
+        set_phase("fallback_food")
         commit_food_target(
             fallback.x, fallback.y,
-            boost=(fallback.value >= 3 and snake.mass > 85),
-            lock_frames=8
+            boost=(fallback.value >= 3 and snake.mass > 80),
+            lock_frames=3
         )
         return
 
-    # Stable wandering toward center bias to keep finding food.
+    set_phase("scan_wander")
     snake._wander_timer -= 1
     if snake._wander_timer <= 0:
         snake.target_angle = random.uniform(0, 2 * math.pi)

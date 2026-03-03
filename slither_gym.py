@@ -20,7 +20,8 @@ START_LENGTH = 10
 START_MASS = 50
 MASS_PER_FOOD = 5
 FOOD_FRICTION = 0.92
-FOOD_REWARD_DIVISOR = 4.0
+FOOD_REWARD_DIVISOR = 2.0
+KILL_REWARD_MULTIPLIER = 0.5
 LOOT_BONUS_MULTIPLIER = 2.0
 LOOT_BONUS_WINDOW_STEPS = 180  # ~3 seconds at 60 FPS
 
@@ -559,7 +560,7 @@ class SlitherEnv(gymnasium.Env):
             reward_breakdown['boost_penalty'] = boost_pen
             
         if self.pending_kill_mass > 0:
-            kill_rew = self.pending_kill_mass / 1.0
+            kill_rew = self.pending_kill_mass * KILL_REWARD_MULTIPLIER
             reward += kill_rew
             reward_breakdown['kill_reward'] = kill_rew
 

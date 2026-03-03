@@ -8,6 +8,7 @@ import math
 import random
 import os
 import numpy as np
+from tqdm.auto import tqdm
 
 import bot_ai
 import observation as obs_module
@@ -262,6 +263,12 @@ def main():
     parser.add_argument("--bots", type=int, default=9, help="Number of scripted bots")
     parser.add_argument("--bot-type", type=str, default=None, help="Force a specific bot personality (e.g. scavenger)")
     parser.add_argument("--simulate", action="store_true", help="Run 60s headless simulation with 2 bots of each type to find the winner")
+    parser.add_argument("--simulate-frames", type=int, default=3600,
+                        help="Frames to run in --simulate mode (3600 = 60s at 60 FPS)")
+    parser.add_argument("--simulate-log-every", type=int, default=600,
+                        help="Print simulation telemetry every N frames in --simulate mode (0=off)")
+    parser.add_argument("--phase-watch", type=str, default="harvester",
+                        help="Bot type to print phase telemetry for (e.g. harvester)")
     parser.add_argument("--debug-vision", action="store_true", help="View agent observation channels fullscreen")
     args = parser.parse_args()
 
@@ -337,16 +344,28 @@ def main():
     running = True
     bot_peaks = {bt: 0 for bt in bot_ai.BOT_TYPES}
     bot_kills = {bt: 0 for bt in bot_ai.BOT_TYPES}
+    bot_food_mass_gain = {bt: 0.0 for bt in bot_ai.BOT_TYPES}
+    bot_food_mass_small = {bt: 0.0 for bt in bot_ai.BOT_TYPES}
+    bot_food_mass_big = {bt: 0.0 for bt in bot_ai.BOT_TYPES}
+    bot_kill_mass_potential = {bt: 0.0 for bt in bot_ai.BOT_TYPES}
+    watch_phase_frames = {}
+    watch_phase_food_mass = {}
+    watch_phase_kill_mass = {}
+    pbar = None
 
     if args.simulate:
-        print("Starting headless simulation for 3600 frames (60 seconds)...")
+        sim_seconds = args.simulate_frames / 60.0
+        print(f"Starting headless simulation for {args.simulate_frames} frames ({sim_seconds:.1f} seconds)...")
+        pbar = tqdm(total=args.simulate_frames, desc="simulate", unit="frame", dynamic_ncols=True)
 
     while running:
-        if args.simulate and step >= 3600:
+        if args.simulate and step >= args.simulate_frames:
             running = False
             continue
             
         step += 1
+        if pbar is not None:
+            pbar.update(1)
         
         if not args.simulate:
             for event in pygame.event.get():
@@ -438,6 +457,9 @@ def main():
         for snake in snakes:
             if snake.role == 'scripted' and not snake.dead:
                 bot_ai.update(snake, foods, snakes, WORLD_RADIUS, segment_grid)
+                if args.simulate and snake.bot_type == args.phase_watch:
+                    phase = getattr(snake, "_ai_phase", "unknown")
+                    watch_phase_frames[phase] = watch_phase_frames.get(phase, 0) + 1
 
         # Update all snakes
         for snake in snakes:
@@ -472,6 +494,11 @@ def main():
                     owner.kills += 1
                     if owner.role == 'scripted':
                         bot_kills[owner.bot_type] += 1
+                        kill_mass = max(0.0, sa.mass - START_MASS)
+                        bot_kill_mass_potential[owner.bot_type] += kill_mass
+                        if owner.bot_type == args.phase_watch:
+                            phase = getattr(owner, "_ai_phase", "unknown")
+                            watch_phase_kill_mass[phase] = watch_phase_kill_mass.get(phase, 0.0) + kill_mass
                     if sa.is_player and not args.simulate:
                         print(f"Killed by a {sa.role}! Mass: {int(sa.mass)}")
                     if owner.is_player and not args.simulate:
@@ -497,7 +524,18 @@ def main():
                 dist = math.hypot(snake.head[0] - food.x, snake.head[1] - food.y)
                 if dist < snake.radius + food.radius:
                     eaten.append(food)
-                    snake.mass += food.value * MASS_PER_FOOD
+                    gain = food.value * MASS_PER_FOOD
+                    snake.mass += gain
+                    if snake.role == 'scripted':
+                        bt = snake.bot_type
+                        bot_food_mass_gain[bt] += gain
+                        if food.value >= 3:
+                            bot_food_mass_big[bt] += gain
+                        else:
+                            bot_food_mass_small[bt] += gain
+                        if bt == args.phase_watch:
+                            phase = getattr(snake, "_ai_phase", "unknown")
+                            watch_phase_food_mass[phase] = watch_phase_food_mass.get(phase, 0.0) + gain
         for food in eaten:
             if food in foods:
                 foods.remove(food)
@@ -534,6 +572,37 @@ def main():
                 if not snake.dead and snake.role == 'scripted':
                     if snake.mass > bot_peaks[snake.bot_type]:
                         bot_peaks[snake.bot_type] = snake.mass
+
+            if args.simulate_log_every > 0 and (step % args.simulate_log_every == 0):
+                log = tqdm.write if pbar is not None else print
+                scripted_alive = [s for s in snakes if not s.dead and s.role == 'scripted']
+                leader = max(scripted_alive, key=lambda s: s.mass) if scripted_alive else None
+
+                log(f"\n[sim {step:,}/{args.simulate_frames:,}]")
+                if leader is not None:
+                    log(f" leader_now={leader.bot_type} mass={leader.mass:.0f} kills={leader.kills}")
+                else:
+                    log(" leader_now=none")
+
+                top_food = sorted(bot_food_mass_gain.items(), key=lambda kv: kv[1], reverse=True)[:3]
+                food_str = " | ".join(f"{bt}:{val:.0f}" for bt, val in top_food)
+                log(f" food_mass_top={food_str}")
+
+                top_kill = sorted(bot_kill_mass_potential.items(), key=lambda kv: kv[1], reverse=True)[:3]
+                kill_str = " | ".join(f"{bt}:{val:.0f}" for bt, val in top_kill)
+                log(f" kill_mass_top={kill_str}")
+
+                if args.phase_watch in bot_ai.BOT_TYPES:
+                    total_phase_frames = sum(watch_phase_frames.values())
+                    if total_phase_frames > 0:
+                        phase_rows = []
+                        for phase, frames in sorted(watch_phase_frames.items(),
+                                                    key=lambda kv: kv[1], reverse=True):
+                            pct = 100.0 * frames / total_phase_frames
+                            food_gain = watch_phase_food_mass.get(phase, 0.0)
+                            kill_gain = watch_phase_kill_mass.get(phase, 0.0)
+                            phase_rows.append(f"{phase}:{pct:.0f}% food={food_gain:.0f} kill={kill_gain:.0f}")
+                        log(f" {args.phase_watch}_phases=" + " | ".join(phase_rows[:5]))
 
         # --- DRAW ---
         if not args.simulate:
@@ -644,19 +713,43 @@ def main():
     if not args.simulate:
         pygame.quit()
     else:
-        print("\n--- SIMULATION RESULTS (60 SECONDS) ---")
+        if pbar is not None:
+            pbar.close()
+        sim_seconds = args.simulate_frames / 60.0
+        print(f"\n--- SIMULATION RESULTS ({sim_seconds:.1f} SECONDS) ---")
         scores = []
         for bt in bot_ai.BOT_TYPES:
-            scores.append((bt, bot_peaks[bt], bot_kills[bt]))
+            scores.append((bt, bot_peaks[bt], bot_kills[bt], bot_food_mass_gain[bt], bot_kill_mass_potential[bt]))
         scores.sort(key=lambda x: x[1], reverse=True) # sort by peak mass
 
-        print(f"{'BOT TYPE':15} | {'PEAK MASS':<10} | {'TOTAL KILLS'}")
-        print("-" * 45)
-        for bt, mass, kills in scores:
-            print(f"{bt:15} | {int(mass):<10} | {kills}")
-        print("-" * 45)
+        print(f"{'BOT TYPE':15} | {'PEAK MASS':<10} | {'KILLS':<5} | {'FOOD_MASS':<9} | {'KILL_MASS'}")
+        print("-" * 74)
+        for bt, mass, kills, food_mass, kill_mass in scores:
+            print(f"{bt:15} | {int(mass):<10} | {kills:<5} | {int(food_mass):<9} | {int(kill_mass)}")
+        print("-" * 74)
         winner = scores[0][0]
         print(f"WINNER (Highest Peak Mass): {winner.upper()}!")
+
+        top_food = sorted(bot_food_mass_gain.items(), key=lambda kv: kv[1], reverse=True)[:3]
+        print("Top food farmers: " + " | ".join(f"{bt}={val:.0f}" for bt, val in top_food))
+        top_kill = sorted(bot_kill_mass_potential.items(), key=lambda kv: kv[1], reverse=True)[:3]
+        print("Top kill pressure: " + " | ".join(f"{bt}={val:.0f}" for bt, val in top_kill))
+
+        if args.phase_watch in bot_ai.BOT_TYPES:
+            total_phase_frames = sum(watch_phase_frames.values())
+            if total_phase_frames > 0:
+                print(f"\n{args.phase_watch.upper()} PHASE BREAKDOWN")
+                phase_keys = set(watch_phase_frames) | set(watch_phase_food_mass) | set(watch_phase_kill_mass)
+                phase_rows = []
+                for phase in phase_keys:
+                    frames = watch_phase_frames.get(phase, 0)
+                    pct = 100.0 * frames / total_phase_frames if total_phase_frames > 0 else 0.0
+                    food_gain = watch_phase_food_mass.get(phase, 0.0)
+                    kill_gain = watch_phase_kill_mass.get(phase, 0.0)
+                    phase_rows.append((phase, pct, food_gain, kill_gain))
+                phase_rows.sort(key=lambda x: x[1], reverse=True)
+                for phase, pct, food_gain, kill_gain in phase_rows:
+                    print(f"  {phase:16} time={pct:5.1f}%  food_mass={food_gain:7.1f}  kill_mass={kill_gain:7.1f}")
 
 
 if __name__ == "__main__":

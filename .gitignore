@@ -2,5 +2,4 @@ __pycache__/
 venv/
 .venv/
 logs/
-checkpoints/
 .DS_Store
