@@ -130,7 +130,7 @@ class SlitherEnv(gymnasium.Env):
     metadata = {'render_modes': ['human', 'rgb_array'], 'render_fps': 60}
 
     def __init__(self, num_scripted=9, num_selfplay=6, world_radius=2000,
-                 food_count=500, max_steps=3000, render_mode=None):
+                 food_count=500, max_steps=10000, render_mode=None):
         super().__init__()
         self.num_scripted = num_scripted
         self.num_selfplay = num_selfplay

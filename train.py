@@ -325,11 +325,11 @@ class SelfPlayCallback(BaseCallback):
         """Run one evaluation episode, capture frames, push video to TensorBoard."""
         try:
             num_scripted = 20 if self.stage >= 2 else 0
-            eval_env = SlitherEnv(num_scripted=num_scripted, num_selfplay=0, max_steps=1500)
+            eval_env = SlitherEnv(num_scripted=num_scripted, num_selfplay=0, max_steps=3000)
             obs, _ = eval_env.reset()
 
             frames = []
-            max_frames = 600
+            max_frames = 1200
             done = False
 
             # LSTM needs hidden state tracking
