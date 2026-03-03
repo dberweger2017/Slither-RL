@@ -441,6 +441,19 @@ def main():
 
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    
+    print("\n" + "="*50)
+    print("🚀 Starting Slither.io PPO Training")
+    print("="*50)
+    print(f"🔹 Subprocess Envs : {args.num_envs}")
+    print(f"🔹 Stage           : {args.stage} (Scripted Bots: {'Yes' if args.stage >= 2 else 'No'}, Self-Play: {'Yes' if args.stage == 3 else 'No'})")
+    print(f"🔹 Timesteps       : {args.timesteps:,}")
+    print(f"🔹 Model Type      : {'RecurrentPPO (LSTM)' if use_lstm else 'PPO (Standard)'}")
+    print(f"🔹 Record Video    : {'Every ' + str(args.record_every) + ' steps' if args.record_every > 0 else 'Disabled'}")
+    print(f"🔹 Render Mode     : {'Enabled' if args.render else 'Disabled'}")
+    if args.resume:
+        print(f"🔹 Resume          : {args.resume}")
+    print("="*50 + "\n")
 
     device = 'auto'
     if torch.backends.mps.is_available():
